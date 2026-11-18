@@ -1131,7 +1131,18 @@ button:focus-visible {
 
 /* Six-star personal ratings */
 .detail-user-rating { display: grid; gap: 8px; }
-.detail-rating-stars, .rating-prompt-stars { display: flex; align-items: center; gap: 7px; }
+.detail-facts .detail-rating-stars,
+.rating-prompt-card .rating-prompt-stars {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  width: max-content;
+  max-width: 100%;
+}
+.rating-prompt-card .rating-prompt-stars { justify-content: center; }
 .detail-rating-stars button, .rating-prompt-stars button { border: 0; background: transparent; color: #706a75; cursor: pointer; padding: 3px; }
 .detail-rating-stars button.active, .detail-rating-stars button:hover, .rating-prompt-stars button:hover { color: var(--yellow); }
 .rating-prompt-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: #050407df; backdrop-filter: blur(10px); }
