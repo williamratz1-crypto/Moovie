@@ -1085,3 +1085,45 @@ button:focus-visible {
 .poster-row-refresh .is-spinning { animation: moovie-refresh-spin .8s linear infinite; }
 @keyframes moovie-refresh-spin { to { transform: rotate(360deg); } }
 @media (max-width: 560px) { .poster-row-heading-actions { gap: 7px; } .poster-row-refresh { min-height: 28px; padding: 0 7px; font-size: 9px; } }
+
+
+/* Continue Watching: cinematic backdrop appears only on hover/focus. */
+.continue-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.continue-card::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -12px;
+  background-image: var(--continue-backdrop);
+  background-position: center;
+  background-size: cover;
+  filter: blur(10px);
+  opacity: 0;
+  transform: scale(1.06);
+  transition: opacity .28s ease;
+  pointer-events: none;
+}
+.continue-card::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: linear-gradient(110deg, rgba(18,15,23,.82), rgba(18,15,23,.58));
+  opacity: 0;
+  transition: opacity .28s ease;
+  pointer-events: none;
+}
+.continue-card:hover::before,
+.continue-card:focus-visible::before,
+.continue-card:hover::after,
+.continue-card:focus-visible::after {
+  opacity: 1;
+}
+.continue-card > * {
+  position: relative;
+  z-index: 1;
+}
