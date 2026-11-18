@@ -1,0 +1,202 @@
+.player-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(5, 4, 7, .94);
+  backdrop-filter: blur(12px);
+}
+.player-window {
+  width: min(1120px, 100%);
+  overflow: hidden;
+  border: 1px solid #39323d;
+  border-radius: 14px;
+  background: #151319;
+  box-shadow: 0 24px 90px #000b;
+}
+.player-header {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 17px;
+  border-bottom: 1px solid #302b35;
+}
+.player-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.player-brand-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #f5c518;
+  color: #17131b;
+}
+.player-heading strong,
+.player-heading span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-heading strong {
+  color: #f2eff5;
+  font: 600 14px 'Space Grotesk', sans-serif;
+}
+.player-heading div > span {
+  margin-top: 4px;
+  color: #99939f;
+  font-size: 9px;
+  letter-spacing: 1.1px;
+}
+.player-close {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid #39323d;
+  border-radius: 50%;
+  background: #211e26;
+  color: #f2eff5;
+  cursor: pointer;
+}
+.player-close:hover { color: #f5c518; border-color: #f5c518; }
+.player-frame-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.player-frame-wrap:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+}
+.player-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+.player-footer {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  color: #817b87;
+  font-size: 9px;
+}
+.player-footer span:first-child {
+  color: #f5c518;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+/* Continue Watching */
+.continue-section {
+  margin: 30px 0 8px;
+}
+.continue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+.continue-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 10px;
+  border: 1px solid #302b35;
+  border-radius: 12px;
+  background: #19161e;
+  color: #f2eff5;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, transform .18s ease, background .18s ease;
+}
+.continue-card:hover {
+  border-color: #71602a;
+  background: #211d25;
+  transform: translateY(-2px);
+}
+.continue-poster {
+  position: relative;
+  width: 58px;
+  height: 82px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #29242f;
+}
+.continue-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.continue-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #0007;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.continue-card:hover .continue-play { opacity: 1; }
+.continue-info {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 7px;
+}
+.continue-info strong {
+  overflow: hidden;
+  color: #f2eff5;
+  font: 600 13px 'Space Grotesk', sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.continue-info > span {
+  color: #99939f;
+  font-size: 9px;
+  letter-spacing: .8px;
+}
+.continue-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #39333f;
+}
+.continue-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #f5c518;
+}
+
+@media (max-width: 600px) {
+  .player-backdrop { padding: 0; }
+  .player-window {
+    width: 100%;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .player-frame-wrap { aspect-ratio: 16 / 9; }
+  .player-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .continue-grid { grid-template-columns: 1fr; }
+}

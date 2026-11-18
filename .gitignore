@@ -19,3 +19,9 @@ replay_pid*.log
 tools/set_secrets.py
 # Firebase config holds project identifiers; commit intentionally if you want it shared
 app/google-services.json
+
+# Sensitive signing credentials
+keystore/
+
+# Build logs
+build_log.txt

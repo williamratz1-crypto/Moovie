@@ -3,3 +3,8 @@ dist/
 .env
 .env.*
 !.env.example
+# Sensitive signing credentials
+keystore/
+
+# Build logs
+build_log.txt

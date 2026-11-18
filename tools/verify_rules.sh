@@ -3,7 +3,7 @@
 # Uses REAL uids from signup and omits the auth header for public reads.
 set -u
 PROJECT="moviepox-7ab66"
-APIKEY="AIzaSyBe6o6WksqpwFCDE-OkGuH1OuSyn9rjULc"
+APIKEY="${FIREBASE_API_KEY:?Set FIREBASE_API_KEY first}"
 BASE="https://firestore.googleapis.com/v1/projects/$PROJECT/databases/(default)/documents"
 OUT="verify_results.txt"
 : > "$OUT"
