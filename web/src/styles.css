@@ -1075,3 +1075,13 @@ button:focus-visible {
   .search-filter-grid select { height: 39px; font-size: 10px; }
   .search-recommendation-intro h2 { font-size: 20px; }
 }
+
+
+/* Top Picks refresh control */
+.poster-row-heading-actions { display: flex; align-items: center; gap: 12px; }
+.poster-row-refresh { min-height: 30px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #51452f; border-radius: 7px; background: #201c25; color: #e7dfeb; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; transition: .18s ease; }
+.poster-row-refresh:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); background: #2a2419; }
+.poster-row-refresh:disabled { opacity: .6; cursor: wait; }
+.poster-row-refresh .is-spinning { animation: moovie-refresh-spin .8s linear infinite; }
+@keyframes moovie-refresh-spin { to { transform: rotate(360deg); } }
+@media (max-width: 560px) { .poster-row-heading-actions { gap: 7px; } .poster-row-refresh { min-height: 28px; padding: 0 7px; font-size: 9px; } }
