@@ -811,7 +811,7 @@ useEffect(() => {
     const timer = setTimeout(async () => {
       try {
         let results = [];
-        if (searchFiltersActive) {
+        if (searchFiltersActive && (!query.trim() || searchCountry || searchYear || searchGenre)) {
           const common = [
             'include_adult=false',
             'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'),
