@@ -8,7 +8,8 @@ import {
 import {
   onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, signInWithPopup, signOut,
-  updateProfile, deleteUser
+  updateProfile, deleteUser, EmailAuthProvider,
+  reauthenticateWithCredential, reauthenticateWithPopup
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp,
@@ -1174,7 +1175,8 @@ useEffect(() => {
     const stamp=(item)=>{const v=item.updatedAt||item.addedAt;if(v?.toMillis)return v.toMillis();if(v?.seconds)return v.seconds*1000;return Number(v)||0;};return stamp(b)-stamp(a);
   }).slice(0,12);
   const genreTotals = new Map();
-  watchlist.forEach((item)=>(item.genre_ids||[]).forEach((id)=>genreTotals.set(Number(id),(genreTotals.get(Number(id))||0)+1)));
+  watchlist.filter((item)=>item.status==='completed'||item.status==='watching'||Number(item.totalWatchedMinutes)>0)
+    .forEach((item)=>(item.genre_ids||[]).forEach((id)=>genreTotals.set(Number(id),(genreTotals.get(Number(id))||0)+1)));
   const favouriteGenreId=[...genreTotals.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0];
   const profileStats={
     watchHours:(watchlist.reduce((sum,item)=>sum+(Number(item.totalWatchedMinutes)||0),0)/60).toFixed(1),
@@ -1191,6 +1193,16 @@ useEffect(() => {
     if(!authUser||!window.confirm('Delete your Moovie account and its stored data? This cannot be undone.'))return;
     setAuthBusy(true);setAuthError('');
     try{
+      const providerIds=authUser.providerData.map((provider)=>provider.providerId);
+      if(providerIds.includes('google.com')){
+        await reauthenticateWithPopup(authUser,googleProvider);
+      }else if(providerIds.includes('password')&&authUser.email){
+        const password=window.prompt('Enter your account password to confirm deletion:');
+        if(!password)throw new Error('Account deletion cancelled. Your data was not changed.');
+        await reauthenticateWithCredential(authUser,EmailAuthProvider.credential(authUser.email,password));
+      }else{
+        throw new Error('This sign-in method needs a fresh sign-in before account deletion.');
+      }
       for(const name of ['watchlist','ratings','following','notifications']){
         const snapshot=await getDocs(collection(db,'users',authUser.uid,name));
         await Promise.all(snapshot.docs.map((entry)=>deleteDoc(entry.ref)));
@@ -1200,7 +1212,7 @@ useEffect(() => {
       await deleteDoc(doc(db,'profiles',authUser.uid));
       localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);
       await deleteUser(authUser);setWatchlist([]);setRatings({});setSection('Home');
-    }catch(failure){setAuthError(failure?.code==='auth/requires-recent-login'?'For security, sign in again before deleting your account.':authErrorMessage(failure));}
+    }catch(failure){setAuthError(failure?.message==='Account deletion cancelled. Your data was not changed.'?failure.message:failure?.code==='auth/wrong-password'?'Password was incorrect. No data was deleted.':authErrorMessage(failure));}
     finally{setAuthBusy(false);}
   }
   function clearGuestData(){
