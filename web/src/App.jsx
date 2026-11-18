@@ -540,11 +540,6 @@ export default function App() {
 
     setRecommendationSeed(seed);
 
-    const savedGenreIds = [...new Set(
-      watchlist.flatMap((item) => Array.isArray(item.genre_ids) ? item.genre_ids : [])
-        .map(Number).filter((id) => Number.isFinite(id) && id > 0)
-    )].slice(0, 3);
-
     const hiddenPicksPath = '/discover/movie?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=3';
 
     const requests = [
