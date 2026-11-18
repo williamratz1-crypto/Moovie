@@ -959,6 +959,15 @@ button:focus-visible {
 .detail-cast-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .detail-cast-card span { letter-spacing: 0; font-size: 10px; }
 .detail-trailers-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.detail-recommendations { margin-top: 46px; padding-top: 30px; border-top: 1px solid var(--line); }
+.detail-recommendations .section-heading { margin-bottom: 18px; }
+.detail-recommendations .poster-row-scroll { padding-bottom: 10px; }
+.detail-recommendations .poster-row-item { flex: 0 0 154px; width: 154px; }
+.detail-recommendations .poster-card { width: 100%; }
+@media (max-width: 640px) {
+  .detail-recommendations { margin-top: 34px; padding-top: 24px; }
+  .detail-recommendations .poster-row-item { flex-basis: 132px; width: 132px; }
+}
 .detail-trailer-card {
   min-height: 76px; padding: 12px; display: flex; align-items: center; gap: 14px;
   color: #f2eff5; text-decoration: none; background: #19171d; border: 1px solid #302b35; border-radius: 9px;
