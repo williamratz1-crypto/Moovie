@@ -1461,7 +1461,7 @@ useEffect(() => {
               <label><span>TYPE</span><select value={searchMediaType} onChange={(event) => setSearchMediaType(event.target.value)}><option value="all">Movies & series</option><option value="movie">Movies only</option><option value="tv">Series only</option></select></label>
               <label><span>SORT BY</span><select value={searchSort} onChange={(event) => setSearchSort(event.target.value)}><option value="relevance">Relevance / Popular</option><option value="rating">Highest rated</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
             </div>
-            {(searchCountry || searchYear || searchGenre || searchSort !== 'relevance' || query) && <button className="search-clear-filters" onClick={() => { setQuery(''); setSearchCountry(''); setSearchYear(''); setSearchGenre(''); setSearchMediaType('all'); setSearchSort('relevance'); }}>Clear search and filters</button>}
+            {(searchCountry || searchYear || searchGenre || searchMediaType !== 'all' || searchSort !== 'relevance' || query) && <button className="search-clear-filters" onClick={() => { setQuery(''); setSearchCountry(''); setSearchYear(''); setSearchGenre(''); setSearchMediaType('all'); setSearchSort('relevance'); }}>Clear search and filters</button>}
           </div>
           {query.trim() || searchFiltersActive ? <section className="catalog-section search-results-section">
             <div className="section-heading"><div><span className="eyebrow">{query.trim() ? 'MATCHING TITLES' : 'FILTERED DISCOVERY'}</span><h2>{query.trim() ? `Results for “${query}”` : 'Explore your filters'}</h2></div><span className="result-count">{visibleMovies.length} TITLES</span></div>
