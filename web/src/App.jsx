@@ -852,7 +852,7 @@ useEffect(() => {
     }, query.trim() ? 350 : 80);
 
     return () => { alive = false; clearTimeout(timer); };
-  }, [section, query, searchCountry, searchYear, searchGenre, searchSort]);
+  }, [section, query, searchCountry, searchYear, searchGenre, searchMediaType, searchSort]);
 
   const visibleMovies = useMemo(() => {
     if (section === 'Search') {
