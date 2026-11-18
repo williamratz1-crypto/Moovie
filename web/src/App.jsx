@@ -492,10 +492,14 @@ export default function App() {
     tmdb(endpoint)
       .then((data) => {
         if (!alive) return;
-        const results = (data.results || []).map((item) => ({
-          ...item,
-          media_type: section === 'Similar' ? similarType : (item.media_type || 'movie'),
-        }));
+        const results = (data.results || [])
+  .filter((item) => item.media_type !== 'person')
+  .map((item) => ({
+    ...item,
+    media_type: section === 'Similar'
+      ? similarType
+      : (item.media_type === 'tv' ? 'tv' : 'movie'),
+  }));
         setMovies(results);
         setHeroIndex(0);
       })
