@@ -276,6 +276,7 @@ export default function App() {
   const [detailTab, setDetailTab] = useState('overview');
   const [detailCast, setDetailCast] = useState([]);
   const [detailVideos, setDetailVideos] = useState([]);
+  const [detailRecommendations, setDetailRecommendations] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedMood, setSelectedMood] = useState('');
   const [selectedGenre, setSelectedGenre] = useState(null);
@@ -1001,16 +1002,18 @@ useEffect(() => {
     setDetailTab('overview');
     setDetailCast([]);
     setDetailVideos([]);
+    setDetailRecommendations([]);
     setDetailLoading(true);
     setTrailerUrl('');
     setTrailerMessage('');
 
     const isCurrentRequest = () => selectedDetailRequestRef.current === requestKey;
 
-    const [detailsResult, creditsResult, videosResult] = await Promise.allSettled([
+    const [detailsResult, creditsResult, videosResult, recommendationsResult] = await Promise.allSettled([
       tmdb(`/${mediaType}/${id}`),
       tmdb(`/${mediaType}/${id}/credits`),
       tmdb(`/${mediaType}/${id}/videos`),
+      tmdb(`/${mediaType}/${id}/recommendations`),
     ]);
 
     if (!isCurrentRequest()) return;
@@ -1032,6 +1035,13 @@ useEffect(() => {
         || videos.find((video) => video.site === 'YouTube' && video.type === 'Trailer')
         || videos.find((video) => video.site === 'YouTube' && video.type === 'Teaser');
       if (trailer?.key) setTrailerUrl(`https://www.youtube.com/watch?v=${trailer.key}`);
+    }
+
+    if (recommendationsResult.status === 'fulfilled') {
+      setDetailRecommendations((recommendationsResult.value.results || [])
+        .filter((item) => item.id !== id && item.poster_path)
+        .slice(0, 12)
+        .map((item) => ({ ...item, media_type: mediaType })));
     }
 
     setDetailLoading(false);
@@ -1610,6 +1620,27 @@ useEffect(() => {
                   : !detailLoading && <p className="detail-empty">No trailers or teasers are available for this title yet.</p>}
               </div>
             )}
+
+            <section className="detail-recommendations">
+              <div className="section-heading">
+                <div>
+                  <span className="eyebrow">KEEP EXPLORING</span>
+                  <h2>More Like This</h2>
+                </div>
+                <span className="result-count">{detailRecommendations.length ? `${detailRecommendations.length} PICKS` : 'RECOMMENDED'}</span>
+              </div>
+              {detailRecommendations.length ? (
+                <div className="poster-row-scroll">
+                  {detailRecommendations.map((movie) => (
+                    <div className="poster-row-item" key={`${movie.media_type}-${movie.id}`}>
+                      <PosterCard movie={movie} onSelect={openDetails} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="detail-empty">{detailLoading ? 'Finding similar titles…' : 'No similar titles are available for this one yet.'}</p>
+              )}
+            </section>
           </div>
         </section>
       </div>}
