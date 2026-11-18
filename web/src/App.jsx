@@ -62,8 +62,10 @@ function buildPlayerUrl(movie) {
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
 
+  const season = Math.max(1, Number(movie?.season) || 1);
+  const episode = Math.max(1, Number(movie?.episode) || 1);
   const path = mediaType === 'tv'
-    ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/1/1`
+    ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
   return `${path}?branding=Moovie&loading=1&back=true`;
@@ -281,6 +283,8 @@ export default function App() {
   const [selectedMood, setSelectedMood] = useState('');
   const [selectedGenre, setSelectedGenre] = useState(null);
   const [tvRecommendations, setTvRecommendations] = useState([]);
+  const [topSeries, setTopSeries] = useState([]);
+  const [topMovies, setTopMovies] = useState([]);
   const [topPicks, setTopPicks] = useState([]);
   const [topPicksRefreshKey, setTopPicksRefreshKey] = useState(0);
   const [topPicksRefreshing, setTopPicksRefreshing] = useState(false);
@@ -644,6 +648,22 @@ export default function App() {
         if (alive) setTvRecommendations((data.results || []).map((item) => ({ ...item, media_type: 'tv' })));
       })
       .catch(() => { if (alive) setTvRecommendations([]); });
+    return () => { alive = false; };
+  }, [section]);
+
+  // Load dedicated top-rated movie and series shelves for the Home page.
+  useEffect(() => {
+    if (section !== 'Home') return undefined;
+    let alive = true;
+    Promise.allSettled([tmdb('/tv/top_rated'), tmdb('/movie/top_rated')]).then(([seriesResult, moviesResult]) => {
+      if (!alive) return;
+      setTopSeries(seriesResult.status === 'fulfilled'
+        ? (seriesResult.value.results || []).filter((item) => item.poster_path).slice(0, 12).map((item) => ({ ...item, media_type: 'tv' }))
+        : []);
+      setTopMovies(moviesResult.status === 'fulfilled'
+        ? (moviesResult.value.results || []).filter((item) => item.poster_path).slice(0, 12).map((item) => ({ ...item, media_type: 'movie' }))
+        : []);
+    });
     return () => { alive = false; };
   }, [section]);
 
@@ -1314,7 +1334,7 @@ useEffect(() => {
         <p>{featured.overview || 'Discover your next favourite story.'}</p>
 
         <div className="hero-actions">
-          <button className="hero-button" onClick={() => openPlayer({ ...featured, media_type: featuredType })}>
+          <button className="hero-button" onClick={() => openDetails({ ...featured, media_type: featuredType })}>
             <Play size={14} fill="currentColor" /> Watch now
           </button>
 
@@ -1388,7 +1408,7 @@ useEffect(() => {
                 const progress = Number(item.progressMinutes) || 0;
                 const percent = runtime > 0 ? Math.min(100, Math.max(0, (progress / runtime) * 100)) : 0;
                 const title = item.title || item.name || 'Untitled';
-                return <button className="continue-card" key={`${item.media_type || 'movie'}-${item.id}`} onClick={() => openDetails(item)} style={{ '--continue-backdrop': item.backdrop_path ? `url(${IMAGE_ROOT}w780${item.backdrop_path})` : 'none' }}>
+                return <button className="continue-card" key={`${item.media_type || 'movie'}-${item.id}`} onClick={() => openPlayer(item)} style={{ '--continue-backdrop': item.backdrop_path ? `url(${IMAGE_ROOT}w780${item.backdrop_path})` : 'none' }}>
                   <div className="continue-poster">
                     {item.poster_path
                       ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
@@ -1408,6 +1428,20 @@ useEffect(() => {
         </section>}
 
         {section === 'Home' && !query && <>
+          <PosterRow
+            eyebrow="TOP RATED SERIES"
+            title="Top TV Shows"
+            movies={topSeries}
+            onSelect={openDetails}
+            emptyMessage="Top-rated series are temporarily unavailable."
+          />
+          <PosterRow
+            eyebrow="TOP RATED FILMS"
+            title="Top Movies"
+            movies={topMovies}
+            onSelect={openDetails}
+            emptyMessage="Top-rated movies are temporarily unavailable."
+          />
           <PosterRow
             eyebrow="CURATED FOR YOU"
             title="Top 10 Picks for You"
