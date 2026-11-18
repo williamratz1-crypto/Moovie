@@ -1127,3 +1127,20 @@ button:focus-visible {
   position: relative;
   z-index: 1;
 }
+
+
+/* Six-star personal ratings */
+.detail-user-rating { display: grid; gap: 8px; }
+.detail-rating-stars, .rating-prompt-stars { display: flex; align-items: center; gap: 7px; }
+.detail-rating-stars button, .rating-prompt-stars button { border: 0; background: transparent; color: #706a75; cursor: pointer; padding: 3px; }
+.detail-rating-stars button.active, .detail-rating-stars button:hover, .rating-prompt-stars button:hover { color: var(--yellow); }
+.rating-prompt-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: #050407df; backdrop-filter: blur(10px); }
+.rating-prompt-card { width: min(430px,100%); padding: 30px 24px; border: 1px solid #51452f; border-radius: 16px; background: #19161e; text-align: center; box-shadow: 0 25px 90px #000b; }
+.rating-prompt-card h2 { margin: 12px 0 7px; font: 700 25px 'Space Grotesk',sans-serif; }
+.rating-prompt-card p { margin: 0 0 22px; color: #aaa2b0; font-size: 12px; }
+.rating-prompt-stars { justify-content: center; gap: 9px; }
+.rating-prompt-stars button { display: grid; justify-items: center; gap: 5px; font-size: 10px; }
+.rating-prompt-stars button:hover { transform: translateY(-2px); }
+.rating-prompt-stars button span { color: #c8c0cd; }
+.rating-prompt-skip { margin-top: 23px; border: 0; background: transparent; color: #9c94a2; font-size: 11px; cursor: pointer; }
+.rating-prompt-skip:hover { color: #fff; }
