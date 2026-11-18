@@ -180,7 +180,7 @@ function PosterCard({ movie, onSelect, showMoreDetails = false }) {
 }
 
 
-function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefresh, refreshing = false }) {
+function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefresh, refreshing = false, statusMessage = '' }) {
   return (
     <section className="catalog-section recommendation-section">
       <div className="section-heading">
@@ -202,8 +202,9 @@ function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefr
           ))}
         </div>
       ) : (
-        <div className="status-message">{emptyMessage}</div>
+        <div className="status-message">{statusMessage || emptyMessage}</div>
       )}
+      {movies.length > 0 && statusMessage && <p className="status-message">{statusMessage}</p>}
     </section>
   );
 }
@@ -230,6 +231,7 @@ export default function App() {
   const [topPicks, setTopPicks] = useState([]);
   const [topPicksRefreshKey, setTopPicksRefreshKey] = useState(0);
   const [topPicksRefreshing, setTopPicksRefreshing] = useState(false);
+  const [topPicksError, setTopPicksError] = useState('');
   const [likedRecommendations, setLikedRecommendations] = useState([]);
   const [hiddenPicks, setHiddenPicks] = useState([]);
   const [recommendationSeed, setRecommendationSeed] = useState(null);
@@ -581,12 +583,22 @@ export default function App() {
       .then((data) => {
         if (!alive) return;
         const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
-        setTopPicks((data.results || [])
+        const nextPicks = (data.results || [])
           .map((item) => ({ ...item, media_type: item.media_type || 'movie' }))
           .filter((item) => !watchedIds.has(`${item.media_type}-${item.id}`))
-          .slice(0, 10));
+          .slice(0, 10);
+        if (nextPicks.length) {
+          setTopPicks(nextPicks);
+          setTopPicksError('');
+        } else {
+          setTopPicksError('No new picks came back. Your previous picks are still here. Try Refresh again.');
+        }
       })
-      .catch(() => { if (alive) setTopPicks([]); })
+      .catch((refreshError) => {
+        if (!alive) return;
+        console.error('Top 10 Picks refresh failed:', refreshError);
+        setTopPicksError('Could not refresh picks. Your previous picks are still here. Try again shortly.');
+      })
       .finally(() => { if (alive) setTopPicksRefreshing(false); });
 
     const refreshTimer = window.setInterval(() => {
@@ -1187,6 +1199,7 @@ useEffect(() => {
             onSelect={openDetails}
             onRefresh={() => setTopPicksRefreshKey((current) => current + 1)}
             refreshing={topPicksRefreshing}
+            statusMessage={topPicksError}
             emptyMessage="Your picks are being prepared. Browse or save a few titles to help Moovie learn your taste."
           />
           <PosterRow
