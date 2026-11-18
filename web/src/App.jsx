@@ -308,6 +308,7 @@ export default function App() {
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
+  const detailPageRef = useRef(null);
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
@@ -344,6 +345,27 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Always start a fresh page load at the top instead of restoring old scroll.
+  useEffect(() => {
+    const previousRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    const scrollToTop = () => window.scrollTo(0, 0);
+    scrollToTop();
+    window.addEventListener('pageshow', scrollToTop);
+    return () => {
+      window.removeEventListener('pageshow', scrollToTop);
+      window.history.scrollRestoration = previousRestoration;
+    };
+  }, []);
+
+  // Reset the details overlay to its top whenever a title is opened.
+  useEffect(() => {
+    if (selected) {
+      if (detailPageRef.current) detailPageRef.current.scrollTop = 0;
+      window.scrollTo(0, 0);
+    }
+  }, [selected?.id, selected?.media_type]);
 
   // App-level player shortcuts. Playback controls inside the cross-origin
   // Vidstuck iframe remain controlled by the provider itself.
@@ -1564,7 +1586,7 @@ useEffect(() => {
       </main>
 
       {selected && <div className="detail-page-backdrop">
-        <section className="detail-page" aria-label={`${selected.title || selected.name} details`}>
+        <section ref={detailPageRef} className="detail-page" aria-label={`${selected.title || selected.name} details`}>
           <div className="detail-page-top">
             <button className="detail-back-button" onClick={() => setSelected(null)}>
               <span aria-hidden="true">←</span> Back to browsing
