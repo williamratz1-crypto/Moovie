@@ -574,7 +574,8 @@ export default function App() {
       watchlist.flatMap((item) => Array.isArray(item.genre_ids) ? item.genre_ids : [])
         .map(Number).filter((id) => Number.isFinite(id) && id > 0)
     )].slice(0, 3);
-    const topPicksPath = `/discover/movie?sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=300&include_adult=false${savedGenreIds.length ? `&with_genres=${savedGenreIds.join(',')}` : ''}`;
+    const topPicksPage = (topPicksRefreshKey % 5) + 1;
+    const topPicksPath = `/discover/movie?sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=300&include_adult=false&page=${topPicksPage}${savedGenreIds.length ? `&with_genres=${savedGenreIds.join(',')}` : ''}`;
     setTopPicksRefreshing(true);
     tmdb(topPicksPath)
       .then((data) => {
