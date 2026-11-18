@@ -20,6 +20,7 @@ const API_ROOT = 'https://api.themoviedb.org/3';
 const IMAGE_ROOT = 'https://image.tmdb.org/t/p/';
 const token = import.meta.env.VITE_TMDB_READ_TOKEN;
 const WATCHLIST_KEY = 'moovie-watchlist-v1';
+const RATINGS_KEY = 'moovie-ratings-v1';
 const VIDSTUCK_EMBED_ROOT = 'https://vidstuck.cc/embed';
 
 const MOOD_FILTERS = [
@@ -83,6 +84,13 @@ function readWatchlist() {
   } catch {
     return [];
   }
+}
+
+function readRatings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RATINGS_KEY) || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch { return {}; }
 }
 
 function getDocId(movie) {
@@ -234,7 +242,12 @@ export default function App() {
   const [topPicksError, setTopPicksError] = useState('');
   const [likedRecommendations, setLikedRecommendations] = useState([]);
   const [hiddenPicks, setHiddenPicks] = useState([]);
+  const [hiddenPicksRefreshKey, setHiddenPicksRefreshKey] = useState(0);
+  const [hiddenPicksRefreshing, setHiddenPicksRefreshing] = useState(false);
   const [recommendationSeed, setRecommendationSeed] = useState(null);
+  const [ratings, setRatings] = useState(readRatings);
+  const [ratingPrompt, setRatingPrompt] = useState(null);
+  const completionPromptedRef = useRef(new Set());
   const [trailerOpen, setTrailerOpen] = useState(false);
   const [watchlist, setWatchlist] = useState(readWatchlist);
   const [loading, setLoading] = useState(true);
@@ -353,6 +366,18 @@ export default function App() {
         duration <= 0
       ) return;
 
+      const completionKey = `${mediaType}-${selected.id}`;
+      const isMovieComplete = mediaType === 'movie' && currentTime / duration >= 0.95;
+      const finalEpisode = selected.last_episode_to_air;
+      const isFinalTvEpisode = mediaType === 'tv' && finalEpisode &&
+        Number(payload.season) === Number(finalEpisode.season_number) &&
+        Number(payload.episode) === Number(finalEpisode.episode_number) && currentTime / duration >= 0.95;
+      if ((isMovieComplete || isFinalTvEpisode) && !ratings[completionKey] && !completionPromptedRef.current.has(completionKey)) {
+        completionPromptedRef.current.add(completionKey);
+        setRatingPrompt({ ...selected, media_type: mediaType });
+        closePlayer();
+      }
+
       const progressMinutes = Math.round((currentTime / 60) * 10) / 10;
       const runtimeMinutes = Math.round(duration / 60);
       const season = mediaType === 'tv' ? Number(payload.season) || 1 : null;
@@ -424,7 +449,7 @@ export default function App() {
 
     window.addEventListener('message', handleVideoProgress);
     return () => window.removeEventListener('message', handleVideoProgress);
-  }, [playerOpen, selected, authUser]);
+  }, [playerOpen, selected, authUser, ratings]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -466,6 +491,26 @@ export default function App() {
   }, [authUser, authReady]);
 
   useEffect(() => {
+    if (!authReady) return undefined;
+    if (!authUser) {
+      try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); } catch {}
+      return undefined;
+    }
+    const ratingsRef = collection(db, 'users', authUser.uid, 'ratings');
+    const localRatings = readRatings();
+    const unsubscribe = onSnapshot(ratingsRef, async (snapshot) => {
+      const cloudRatings = {};
+      snapshot.docs.forEach((item) => { cloudRatings[item.id] = Number(item.data().rating) || 0; });
+      setRatings(cloudRatings);
+      const missing = Object.entries(localRatings).filter(([id]) => !cloudRatings[id]);
+      if (missing.length) {
+        await Promise.all(missing.map(([id, rating]) => setDoc(doc(db, 'users', authUser.uid, 'ratings', id), { rating: Number(rating), updatedAt: serverTimestamp() }, { merge: true })));
+      }
+    }, (listenerError) => setCloudError(`Ratings sync failed: ${authErrorMessage(listenerError)}`));
+    return unsubscribe;
+  }, [authUser, authReady]);
+
+  useEffect(() => {
     if (!authReady || authUser) return;
     try {
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
@@ -473,6 +518,11 @@ export default function App() {
       setError('Your browser could not save the watchlist. Check available site storage.');
     }
   }, [watchlist, authUser, authReady]);
+
+  useEffect(() => {
+    if (!authReady || authUser) return;
+    try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); } catch {}
+  }, [ratings, authUser, authReady]);
 
   useEffect(() => {
     if (section === 'Watchlist' || section === 'Watched' || section === 'Search') {
@@ -530,43 +580,59 @@ export default function App() {
     `${item.media_type || 'movie'}-${item.id}-${item.status || ''}-${(item.genre_ids || []).join(',')}`
   ).join('|');
 
-  // Build Home recommendations from the user's saved and watched titles.
+  // Personalised recommendations prioritise six-star titles, then the user's highest ratings.
   useEffect(() => {
     if (section !== 'Home') return undefined;
     let alive = true;
-
-    const seed = watchlist.find((item) =>
-      item.status === 'watched' || item.status === 'watching' ||
-      Number(item.progressMinutes) > 0
+    const ratedEntries = Object.entries(ratings)
+      .filter(([, rating]) => Number(rating) >= 1 && Number(rating) <= 6)
+      .sort((a, b) => Number(b[1]) - Number(a[1]));
+    const sixStarItems = ratedEntries.filter(([, rating]) => Number(rating) === 6);
+    const preferredRatings = sixStarItems.length ? sixStarItems : ratedEntries.slice(0, 3);
+    const ratingSeeds = preferredRatings.map(([key]) => {
+      const [mediaType, id] = key.split('-');
+      return watchlist.find((item) => getDocId(item) === key) || { id: Number(id), media_type: mediaType };
+    });
+    const watchedSeed = watchlist.find((item) =>
+      item.status === 'watched' || item.status === 'watching' || Number(item.progressMinutes) > 0
     ) || watchlist[0] || null;
-
+    const seeds = ratingSeeds.length ? ratingSeeds : (watchedSeed ? [watchedSeed] : []);
+    const seed = seeds[0] || null;
     setRecommendationSeed(seed);
-
-    const hiddenPicksPath = '/discover/movie?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=3';
-
-    const requests = [
-      tmdb(hiddenPicksPath),
-      seed
-        ? tmdb(`/${seed.media_type === 'tv' ? 'tv' : 'movie'}/${seed.id}/recommendations`)
-        : Promise.resolve({ results: [] }),
-    ];
-
-    Promise.allSettled(requests).then(([hiddenResult, likedResult]) => {
+    const hiddenPage = (hiddenPicksRefreshKey % 20) + 1;
+    const hiddenPicksPath = `/discover/movie?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=${hiddenPage}`;
+    setHiddenPicksRefreshing(true);
+    const hiddenRequest = tmdb(hiddenPicksPath);
+    const likedRequests = seeds.slice(0, 3).map((item) =>
+      tmdb(`/${item.media_type === 'tv' ? 'tv' : 'movie'}/${item.id}/recommendations`)
+    );
+    Promise.allSettled([hiddenRequest, ...likedRequests]).then((results) => {
       if (!alive) return;
       const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
-      const asMovies = (result, limit, fallbackType = 'movie') => result.status === 'fulfilled'
-        ? (result.value.results || [])
-          .map((item) => ({ ...item, media_type: item.media_type || fallbackType }))
-          .filter((item) => !watchedIds.has(`${item.media_type}-${item.id}`))
-          .slice(0, limit)
-        : [];
-
-      setHiddenPicks(asMovies(hiddenResult, 3, 'movie'));
-      setLikedRecommendations(asMovies(likedResult, 10, seed?.media_type === 'tv' ? 'tv' : 'movie'));
+      const hiddenResult = results[0];
+      const hidden = hiddenResult.status === 'fulfilled' ? (hiddenResult.value.results || [])
+        .filter((item) => item.poster_path && !watchedIds.has(`movie-${item.id}`))
+        .slice(0, 6).map((item) => ({ ...item, media_type: 'movie' })) : [];
+      setHiddenPicks(hidden);
+      setHiddenPicksRefreshing(false);
+      const merged = [];
+      const seen = new Set(watchedIds);
+      results.slice(1).forEach((result, index) => {
+        if (result.status !== 'fulfilled') return;
+        const fallbackType = seeds[index]?.media_type === 'tv' ? 'tv' : 'movie';
+        (result.value.results || []).forEach((item) => {
+          const type = item.media_type || fallbackType;
+          const key = `${type}-${item.id}`;
+          if (item.poster_path && !seen.has(key) && merged.length < 10) {
+            seen.add(key);
+            merged.push({ ...item, media_type: type });
+          }
+        });
+      });
+      setLikedRecommendations(merged);
     });
-
     return () => { alive = false; };
-  }, [section, recommendationSignature]);
+  }, [section, recommendationSignature, hiddenPicksRefreshKey, JSON.stringify(ratings)]);
 
   // Find ten fresh Top 10 Picks, checking additional TMDB pages when needed.
   useEffect(() => {
@@ -749,6 +815,21 @@ useEffect(() => {
   );
   const isSaved = Boolean(selectedWatchlistItem && selectedWatchlistItem.status !== 'watched');
   const isWatched = Boolean(selectedWatchlistItem?.status === 'watched');
+
+  async function saveRating(movie, value) {
+    const rating = Math.max(1, Math.min(6, Number(value)));
+    const key = getDocId(movie);
+    setRatings((current) => ({ ...current, [key]: rating }));
+    if (authUser) {
+      try {
+        await setDoc(doc(db, 'users', authUser.uid, 'ratings', key), { rating, updatedAt: serverTimestamp() }, { merge: true });
+        setCloudError('');
+      } catch (writeError) {
+        setCloudError(`Rating could not sync: ${authErrorMessage(writeError)}`);
+      }
+    }
+    setRatingPrompt(null);
+  }
 
   async function toggleWatchlist(movie) {
     const type = movie.media_type || 'movie';
@@ -1234,6 +1315,8 @@ useEffect(() => {
             title="Hidden Picks"
             movies={hiddenPicks}
             onSelect={openDetails}
+            onRefresh={() => setHiddenPicksRefreshKey((current) => current + 1)}
+            refreshing={hiddenPicksRefreshing}
             emptyMessage="Hidden Picks are temporarily unavailable. Try again in a moment."
           />
         </>}
@@ -1384,6 +1467,7 @@ useEffect(() => {
                 </div>
                 <div className="detail-facts">
                   {selected.genres?.length > 0 && <div><span>GENRES</span><strong>{selected.genres.map((genre) => genre.name).join(' · ')}</strong></div>}
+                  <div className="detail-user-rating"><span>YOUR MOOVIE RATING</span><div className="detail-rating-stars">{[1,2,3,4,5,6].map((value) => <button key={value} className={Number(ratings[getDocId(selected)]) >= value ? 'active' : ''} onClick={() => saveRating(selected, value)} aria-label={`Rate ${value} out of 6 stars`}><Star size={18} fill="currentColor" /></button>)}</div><strong>{ratings[getDocId(selected)] ? `${ratings[getDocId(selected)]}/6 stars` : 'Not rated yet'}</strong></div>
                   {selected.status && <div><span>STATUS</span><strong>{selected.status}</strong></div>}
                   {selected.number_of_seasons && <div><span>SEASONS</span><strong>{selected.number_of_seasons}</strong></div>}
                 </div>
@@ -1417,6 +1501,16 @@ useEffect(() => {
               </div>
             )}
           </div>
+        </section>
+      </div>}
+
+      {ratingPrompt && <div className="rating-prompt-backdrop" role="dialog" aria-modal="true" aria-label="Rate completed title">
+        <section className="rating-prompt-card">
+          <span className="eyebrow">YOU FINISHED WATCHING</span>
+          <h2>How would you rate it?</h2>
+          <p>{ratingPrompt.title || ratingPrompt.name}</p>
+          <div className="rating-prompt-stars">{[1,2,3,4,5,6].map((value) => <button key={value} onClick={() => saveRating(ratingPrompt, value)} aria-label={`Rate ${value} out of 6 stars`}><Star size={27} fill="currentColor" /> <span>{value}</span></button>)}</div>
+          <button className="rating-prompt-skip" onClick={() => setRatingPrompt(null)}>Maybe later</button>
         </section>
       </div>}
 
