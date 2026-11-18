@@ -228,7 +228,7 @@ function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefr
   );
 }
 
-function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRatedTitles, onOpenTitle, onSignOut, onDeleteAccount, onClearGuestData, authError, authBusy }) {
+function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRatedTitles, onOpenTitle, onSignOut, onDeleteAccount, onClearGuestData, onSignIn, authError, authBusy }) {
  return <section className="profile-page">
   <div className="profile-page-heading"><span className="eyebrow">YOUR MOOVIE SPACE</span><h1>Your profile.</h1><p>Your viewing history, taste profile and collection at a glance.</p></div>
   <div className="profile-identity-card"><div className="profile-large-avatar">{(accountName||'M').charAt(0).toUpperCase()}</div><div className="profile-identity-copy"><strong>{accountName}</strong><span>{authUser?.email||'Guest account · saved locally on this device'}</span><small>{authUser?'CLOUD-SYNCED ACCOUNT':'LOCAL GUEST PROFILE'}</small></div>{authUser&&<span className="profile-sync-indicator">SYNCED</span>}</div>
@@ -244,7 +244,7 @@ function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRa
   </div>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR LATEST ACTIVITY</span><h2>Recently watched</h2></div><span className="result-count">{recentlyWatched.length} TITLES</span></div>{recentlyWatched.length?<div className="movie-grid profile-movie-grid">{recentlyWatched.map(movie=><PosterCard key={getDocId(movie)} movie={movie} onSelect={onOpenTitle}/>)}</div>:<div className="status-message">Your recently watched titles will appear here as you play or complete something.</div>}</section>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR HIGHEST RATINGS</span><h2>Titles you loved</h2></div><span className="result-count">{stats.ratingCount} RATED</span></div>{topRatedTitles.length?<div className="movie-grid profile-movie-grid">{topRatedTitles.map(movie=><div className="profile-rated-item" key={getDocId(movie)}><PosterCard movie={movie} onSelect={onOpenTitle}/><span><Star size={12} fill="currentColor"/> {stats.ratings[getDocId(movie)]}/6</span></div>)}</div>:<div className="status-message">Rate titles out of six stars to build your favourites shelf.</div>}</section>
-  <section className="profile-account-panel"><div><span className="eyebrow">ACCOUNT & DATA</span><h2>Account settings</h2><p>{authUser?'Manage your Moovie account and stored viewing data.':'Guest data stays in this browser until you clear it or sign in.'}</p></div><div className="profile-account-actions">{authUser?<><button className="detail-watch-button" onClick={onSignOut}><LogOut size={15}/> Sign out</button><button className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account & data</button></>:<button className="profile-delete-button" onClick={onClearGuestData}><Trash2 size={15}/> Clear guest data</button>}</div>{authError&&<p className="auth-error profile-account-error">{authError}</p>}</section>
+  <section className="profile-account-panel"><div><span className="eyebrow">ACCOUNT & DATA</span><h2>Account settings</h2><p>{authUser?'Manage your Moovie account and stored viewing data.':'Guest data stays in this browser until you clear it or sign in.'}</p></div><div className="profile-account-actions">{authUser?<><button className="detail-watch-button" onClick={onSignOut}><LogOut size={15}/> Sign out</button><button className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account & data</button></>:<><button className="detail-play-button" onClick={onSignIn}><UserRound size={15}/> Sign in / Create account</button><button className="profile-delete-button" onClick={onClearGuestData}><Trash2 size={15}/> Clear guest data</button></>}</div>{authError&&<p className="auth-error profile-account-error">{authError}</p>}</section>
  </section>;
 }
 
@@ -1426,7 +1426,7 @@ useEffect(() => {
           </div>
         </section>}
 
-        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
+        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onSignIn={()=>{setAuthMode('login');setAuthError('');setAuthOpen(true);}} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
           <div className="search-discovery-heading">
             <span className="eyebrow">YOUR NEXT WATCH STARTS HERE</span>
             <h1>What's on your mind?</h1>
