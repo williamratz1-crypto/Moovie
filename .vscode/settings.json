@@ -4,4 +4,13 @@
     "pycodeloop.model": "local-model",
     "CodeGPT.apiKey": "CodeGPT Plus Beta",
     "gitdoc.enabled": true
+    ,"gitdoc.autoCommitDelay": 30000,
+    "gitdoc.autoPush": "onCommit",
+    "gitdoc.pushMode": "push",
+    "gitdoc.commitValidationLevel": "error",
+    "gitdoc.autoPull": "off",
+    "gitdoc.pullOnOpen": false,
+    "gitdoc.excludeBranches": [
+        "main"
+    ]
 }
