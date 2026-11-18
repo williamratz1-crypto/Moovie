@@ -1127,15 +1127,14 @@ useEffect(() => {
     if (!buildPlayerUrl(playableMovie)) return;
 
     setSelected(playableMovie);
-
-    // Ensure the watchlist entry exists before progress updates arrive.
-    await markAsWatching(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
     watchTimeSampleRef.current = { key: getDocId(playableMovie), currentTime: 0, pendingSeconds: 0 };
 
+    // Open playback immediately; update the watchlist in the background.
     window.history.pushState({ mooviePlayer: true }, '', window.location.href);
     playerHistoryRef.current = true;
     setPlayerOpen(true);
+    void markAsWatching(playableMovie);
   }
 
   function closePlayer() {
