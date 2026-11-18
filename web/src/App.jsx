@@ -568,39 +568,52 @@ export default function App() {
     return () => { alive = false; };
   }, [section, recommendationSignature]);
 
-  // Refresh Top 10 Picks on entry, on demand, and every five minutes.
+  // Find ten fresh Top 10 Picks, checking additional TMDB pages when needed.
   useEffect(() => {
     if (section !== 'Home') return undefined;
     let alive = true;
-    const savedGenreIds = [...new Set(
-      watchlist.flatMap((item) => Array.isArray(item.genre_ids) ? item.genre_ids : [])
-        .map(Number).filter((id) => Number.isFinite(id) && id > 0)
-    )].slice(0, 3);
-    const topPicksPage = (topPicksRefreshKey % 5) + 1;
-    const topPicksPath = `/discover/movie?sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=300&include_adult=false&page=${topPicksPage}${savedGenreIds.length ? `&with_genres=${savedGenreIds.join(',')}` : ''}`;
-    setTopPicksRefreshing(true);
-    tmdb(topPicksPath)
-      .then((data) => {
-        if (!alive) return;
-        const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
-        const nextPicks = (data.results || [])
-          .map((item) => ({ ...item, media_type: item.media_type || 'movie' }))
-          .filter((item) => !watchedIds.has(`${item.media_type}-${item.id}`))
-          .slice(0, 10);
-        if (nextPicks.length) {
-          setTopPicks(nextPicks);
-          setTopPicksError('');
-        } else {
-          setTopPicksError('No new picks came back. Your previous picks are still here. Try Refresh again.');
-        }
-      })
-      .catch((refreshError) => {
-        if (!alive) return;
-        console.error('Top 10 Picks refresh failed:', refreshError);
-        setTopPicksError('Could not refresh picks. Your previous picks are still here. Try again shortly.');
-      })
-      .finally(() => { if (alive) setTopPicksRefreshing(false); });
+    const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
+    const currentPickIds = new Set(topPicks.map((item) => `${item.media_type || 'movie'}-${item.id}`));
+    const firstPage = (topPicksRefreshKey % 20) + 1;
 
+    async function loadFreshPicks() {
+      setTopPicksRefreshing(true);
+      setTopPicksError('');
+      const freshPicks = [];
+      const seenIds = new Set([...watchedIds, ...currentPickIds]);
+
+      try {
+        // Do not require a taste profile or restrictive genre combination.
+        // Search several pages so a refresh can replace all ten current titles.
+        for (let offset = 0; offset < 5 && freshPicks.length < 10; offset += 1) {
+          const page = ((firstPage - 1 + offset) % 20) + 1;
+          const data = await tmdb(`/discover/movie?sort_by=popularity.desc&vote_average.gte=6&vote_count.gte=50&include_adult=false&page=${page}`);
+          if (!alive) return;
+
+          for (const item of data.results || []) {
+            const id = `movie-${item.id}`;
+            if (!item.poster_path || seenIds.has(id)) continue;
+            seenIds.add(id);
+            freshPicks.push({ ...item, media_type: 'movie' });
+            if (freshPicks.length === 10) break;
+          }
+        }
+
+        if (!alive) return;
+        if (freshPicks.length === 10) {
+          setTopPicks(freshPicks);
+        } else if (freshPicks.length > 0) {
+          // Show the best available fresh set rather than an empty row.
+          setTopPicks(freshPicks);
+        }
+      } catch (refreshError) {
+        if (alive) console.error('Top 10 Picks refresh failed:', refreshError);
+      } finally {
+        if (alive) setTopPicksRefreshing(false);
+      }
+    }
+
+    loadFreshPicks();
     const refreshTimer = window.setInterval(() => {
       setTopPicksRefreshKey((current) => current + 1);
     }, 5 * 60 * 1000);
@@ -610,6 +623,11 @@ export default function App() {
       window.clearInterval(refreshTimer);
     };
   }, [section, recommendationSignature, topPicksRefreshKey]);
+
+  // Keep the current set in the exclusion list when a refresh starts.
+  useEffect(() => {
+    if (topPicks.length) setTopPicksError('');
+  }, [topPicks]);
 
   // Automatically rotate featured titles.
 useEffect(() => {
