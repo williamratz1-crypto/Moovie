@@ -1190,7 +1190,7 @@ useEffect(() => {
                 const progress = Number(item.progressMinutes) || 0;
                 const percent = runtime > 0 ? Math.min(100, Math.max(0, (progress / runtime) * 100)) : 0;
                 const title = item.title || item.name || 'Untitled';
-                return <button className="continue-card" key={`${item.media_type || 'movie'}-${item.id}`} onClick={() => openDetails(item)}>
+                return <button className="continue-card" key={`${item.media_type || 'movie'}-${item.id}`} onClick={() => openDetails(item)} style={{ '--continue-backdrop': item.backdrop_path ? `url(${IMAGE_ROOT}w780${item.backdrop_path})` : 'none' }}>
                   <div className="continue-poster">
                     {item.poster_path
                       ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
