@@ -487,7 +487,7 @@ export default function App() {
         : '/movie/top_rated'
       : section === 'Similar' && similarSource
         ? `/${similarType}/${similarSource.id}/similar`
-        : '/trending/movie/week';
+        : '/trending/all/week';
 
     tmdb(endpoint)
       .then((data) => {
