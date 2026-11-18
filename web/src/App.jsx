@@ -1335,7 +1335,7 @@ useEffect(() => {
 
         <div className="hero-actions">
           <button className="hero-button" onClick={() => openDetails({ ...featured, media_type: featuredType })}>
-            <Play size={14} fill="currentColor" /> Watch now
+            <Film size={14} /> View details
           </button>
 
           <button
