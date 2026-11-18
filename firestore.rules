@@ -55,7 +55,7 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if true;
       allow create, update: if isOwner(uid) && request.resource.data.uid == uid;
-      allow delete: if false;
+      allow delete: if isOwner(uid);
     }
 
     // ---------- Watch parties: anyone signed in can join; host controls playback ----------
