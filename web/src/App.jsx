@@ -490,21 +490,32 @@ export default function App() {
     return unsubscribe;
   }, [authUser, authReady]);
 
+  // Keep a local backup for every account so ratings survive reloads and cloud outages.
   useEffect(() => {
-    if (!authReady) return undefined;
-    if (!authUser) {
-      try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); } catch {}
-      return undefined;
-    }
+    try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); } catch {}
+  }, [ratings]);
+
+  // Signed-in users additionally sync ratings to their private Firestore collection.
+  useEffect(() => {
+    if (!authReady || !authUser) return undefined;
     const ratingsRef = collection(db, 'users', authUser.uid, 'ratings');
     const localRatings = readRatings();
     const unsubscribe = onSnapshot(ratingsRef, async (snapshot) => {
       const cloudRatings = {};
       snapshot.docs.forEach((item) => { cloudRatings[item.id] = Number(item.data().rating) || 0; });
-      setRatings(cloudRatings);
+      const mergedRatings = { ...localRatings, ...cloudRatings };
+      setRatings(mergedRatings);
       const missing = Object.entries(localRatings).filter(([id]) => !cloudRatings[id]);
       if (missing.length) {
-        await Promise.all(missing.map(([id, rating]) => setDoc(doc(db, 'users', authUser.uid, 'ratings', id), { rating: Number(rating), updatedAt: serverTimestamp() }, { merge: true })));
+        try {
+          await Promise.all(missing.map(([id, rating]) =>
+            setDoc(doc(db, 'users', authUser.uid, 'ratings', id), {
+              rating: Number(rating), updatedAt: serverTimestamp()
+            }, { merge: true })
+          ));
+        } catch (writeError) {
+          setCloudError(`Ratings sync failed: ${authErrorMessage(writeError)}`);
+        }
       }
     }, (listenerError) => setCloudError(`Ratings sync failed: ${authErrorMessage(listenerError)}`));
     return unsubscribe;
@@ -819,7 +830,12 @@ useEffect(() => {
   async function saveRating(movie, value) {
     const rating = Math.max(1, Math.min(6, Number(value)));
     const key = getDocId(movie);
-    setRatings((current) => ({ ...current, [key]: rating }));
+    setRatings((current) => {
+      const next = { ...current, [key]: rating };
+      // Write immediately as well as through the state effect, avoiding a lost save on quick reloads.
+      try { localStorage.setItem(RATINGS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
     if (authUser) {
       try {
         await setDoc(doc(db, 'users', authUser.uid, 'ratings', key), { rating, updatedAt: serverTimestamp() }, { merge: true });
