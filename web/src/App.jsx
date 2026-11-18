@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Search, Film, Compass, Bookmark, UserRound, Play, Star, X, SlidersHorizontal,
+  Search, Film, Compass, Bookmark, UserRound, Play, Star, X, SlidersHorizontal, RefreshCw,
   Clapperboard, Sparkles, BookmarkCheck, LogOut, Mail, Lock,
   User, Chrome, LoaderCircle, CheckCircle2
 } from 'lucide-react';
@@ -180,7 +180,7 @@ function PosterCard({ movie, onSelect, showMoreDetails = false }) {
 }
 
 
-function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage }) {
+function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefresh, refreshing = false }) {
   return (
     <section className="catalog-section recommendation-section">
       <div className="section-heading">
@@ -188,7 +188,10 @@ function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage }) {
           <span className="eyebrow">{eyebrow}</span>
           <h2>{title}</h2>
         </div>
-        <span className="result-count">{movies.length ? `${movies.length} PICKS` : 'PERSONALISED'}</span>
+        <div className="poster-row-heading-actions">
+          <span className="result-count">{movies.length ? `${movies.length} PICKS` : 'PERSONALISED'}</span>
+          {onRefresh && <button className="poster-row-refresh" onClick={onRefresh} disabled={refreshing} aria-label={`Refresh ${title}`}><RefreshCw size={13} className={refreshing ? 'is-spinning' : ''} /> Refresh</button>}
+        </div>
       </div>
       {movies.length ? (
         <div className="poster-row-scroll">
@@ -225,6 +228,8 @@ export default function App() {
   const [selectedGenre, setSelectedGenre] = useState(null);
   const [tvRecommendations, setTvRecommendations] = useState([]);
   const [topPicks, setTopPicks] = useState([]);
+  const [topPicksRefreshKey, setTopPicksRefreshKey] = useState(0);
+  const [topPicksRefreshing, setTopPicksRefreshing] = useState(false);
   const [likedRecommendations, setLikedRecommendations] = useState([]);
   const [hiddenPicks, setHiddenPicks] = useState([]);
   const [recommendationSeed, setRecommendationSeed] = useState(null);
@@ -540,18 +545,16 @@ export default function App() {
         .map(Number).filter((id) => Number.isFinite(id) && id > 0)
     )].slice(0, 3);
 
-    const topPicksPath = `/discover/movie?sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=300&include_adult=false${savedGenreIds.length ? `&with_genres=${savedGenreIds.join(',')}` : ''}`;
     const hiddenPicksPath = '/discover/movie?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=3';
 
     const requests = [
-      tmdb(topPicksPath),
       tmdb(hiddenPicksPath),
       seed
         ? tmdb(`/${seed.media_type === 'tv' ? 'tv' : 'movie'}/${seed.id}/recommendations`)
         : Promise.resolve({ results: [] }),
     ];
 
-    Promise.allSettled(requests).then(([topResult, hiddenResult, likedResult]) => {
+    Promise.allSettled(requests).then(([hiddenResult, likedResult]) => {
       if (!alive) return;
       const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
       const asMovies = (result, limit, fallbackType = 'movie') => result.status === 'fulfilled'
@@ -561,13 +564,44 @@ export default function App() {
           .slice(0, limit)
         : [];
 
-      setTopPicks(asMovies(topResult, 10, 'movie'));
       setHiddenPicks(asMovies(hiddenResult, 3, 'movie'));
       setLikedRecommendations(asMovies(likedResult, 10, seed?.media_type === 'tv' ? 'tv' : 'movie'));
     });
 
     return () => { alive = false; };
   }, [section, recommendationSignature]);
+
+  // Refresh Top 10 Picks on entry, on demand, and every five minutes.
+  useEffect(() => {
+    if (section !== 'Home') return undefined;
+    let alive = true;
+    const savedGenreIds = [...new Set(
+      watchlist.flatMap((item) => Array.isArray(item.genre_ids) ? item.genre_ids : [])
+        .map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    )].slice(0, 3);
+    const topPicksPath = `/discover/movie?sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=300&include_adult=false${savedGenreIds.length ? `&with_genres=${savedGenreIds.join(',')}` : ''}`;
+    setTopPicksRefreshing(true);
+    tmdb(topPicksPath)
+      .then((data) => {
+        if (!alive) return;
+        const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
+        setTopPicks((data.results || [])
+          .map((item) => ({ ...item, media_type: item.media_type || 'movie' }))
+          .filter((item) => !watchedIds.has(`${item.media_type}-${item.id}`))
+          .slice(0, 10));
+      })
+      .catch(() => { if (alive) setTopPicks([]); })
+      .finally(() => { if (alive) setTopPicksRefreshing(false); });
+
+    const refreshTimer = window.setInterval(() => {
+      setTopPicksRefreshKey((current) => current + 1);
+    }, 5 * 60 * 1000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(refreshTimer);
+    };
+  }, [section, recommendationSignature, topPicksRefreshKey]);
 
   // Automatically rotate featured titles.
 useEffect(() => {
@@ -1155,6 +1189,8 @@ useEffect(() => {
             title="Top 10 Picks for You"
             movies={topPicks}
             onSelect={openDetails}
+            onRefresh={() => setTopPicksRefreshKey((current) => current + 1)}
+            refreshing={topPicksRefreshing}
             emptyMessage="Your picks are being prepared. Browse or save a few titles to help Moovie learn your taste."
           />
           <PosterRow
