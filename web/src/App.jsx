@@ -199,6 +199,16 @@ function PosterCard({ movie, onSelect, showMoreDetails = false }) {
 }
 
 
+function PosterSkeletons({ count = 12 }) {
+  return <div className="movie-grid poster-skeleton-grid" aria-label="Loading titles" aria-busy="true">
+    {Array.from({ length: count }, (_, index) => <div className="poster-skeleton-card" key={index}>
+      <div className="poster-skeleton-art" />
+      <div className="poster-skeleton-line" />
+      <div className="poster-skeleton-line short" />
+    </div>)}
+  </div>;
+}
+
 function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefresh, refreshing = false, statusMessage = '' }) {
   return (
     <section className="catalog-section recommendation-section">
@@ -260,6 +270,7 @@ export default function App() {
   const [searchCountry, setSearchCountry] = useState('');
   const [searchYear, setSearchYear] = useState('');
   const [searchGenre, setSearchGenre] = useState('');
+  const [searchMediaType, setSearchMediaType] = useState('all');
   const [searchSort, setSearchSort] = useState('relevance');
   const [selected, setSelected] = useState(null);
   const [detailTab, setDetailTab] = useState('overview');
@@ -661,22 +672,27 @@ export default function App() {
     const hiddenPage = (hiddenPicksRefreshKey % 20) + 1;
     const hiddenPicksPath = `/discover/movie?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=${hiddenPage}`;
     setHiddenPicksRefreshing(true);
-    const hiddenRequest = tmdb(hiddenPicksPath);
+    const hiddenMovieRequest = tmdb(hiddenPicksPath);
+    const hiddenTvRequest = tmdb(`/discover/tv?sort_by=vote_average.desc&vote_average.gte=7&vote_count.gte=50&vote_count.lte=1200&include_adult=false&page=${hiddenPage}`);
     const likedRequests = seeds.slice(0, 3).map((item) =>
       tmdb(`/${item.media_type === 'tv' ? 'tv' : 'movie'}/${item.id}/recommendations`)
     );
-    Promise.allSettled([hiddenRequest, ...likedRequests]).then((results) => {
+    Promise.allSettled([hiddenMovieRequest, hiddenTvRequest, ...likedRequests]).then((results) => {
       if (!alive) return;
       const watchedIds = new Set(watchlist.map((item) => `${item.media_type || 'movie'}-${item.id}`));
-      const hiddenResult = results[0];
-      const hidden = hiddenResult.status === 'fulfilled' ? (hiddenResult.value.results || [])
-        .filter((item) => item.poster_path && !watchedIds.has(`movie-${item.id}`))
-        .slice(0, 6).map((item) => ({ ...item, media_type: 'movie' })) : [];
+      const hidden = results.slice(0, 2).flatMap((result, index) => {
+        if (result.status !== 'fulfilled') return [];
+        const type = index === 0 ? 'movie' : 'tv';
+        return (result.value.results || [])
+          .filter((item) => item.poster_path && !watchedIds.has(`${type}-${item.id}`))
+          .map((item) => ({ ...item, media_type: type }));
+      }).filter((item, index, all) => all.findIndex((other) => `${other.media_type}-${other.id}` === `${item.media_type}-${item.id}`) === index)
+        .sort((a, b) => Number(b.vote_average || 0) - Number(a.vote_average || 0)).slice(0, 6);
       setHiddenPicks(hidden);
       setHiddenPicksRefreshing(false);
       const merged = [];
       const seen = new Set(watchedIds);
-      results.slice(1).forEach((result, index) => {
+      results.slice(2).forEach((result, index) => {
         if (result.status !== 'fulfilled') return;
         const fallbackType = seeds[index]?.media_type === 'tv' ? 'tv' : 'movie';
         (result.value.results || []).forEach((item) => {
@@ -765,7 +781,7 @@ useEffect(() => {
   return () => clearInterval(timer);
 }, [movies, section, query]);
 
-  const searchFiltersActive = Boolean(searchCountry || searchYear || searchGenre);
+  const searchFiltersActive = Boolean(searchCountry || searchYear || searchGenre || searchMediaType !== 'all' || searchSort !== 'relevance');
 
   useEffect(() => {
     if (section !== 'Search') {
@@ -798,14 +814,14 @@ useEffect(() => {
         if (searchFiltersActive) {
           const common = [
             'include_adult=false',
-            'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : 'popularity.desc'),
+            'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'),
             searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
             searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
           ].filter(Boolean).join('&');
           const movieParams = [common, searchYear ? `primary_release_year=${searchYear}` : ''].filter(Boolean).join('&');
           const tvParams = [
             'include_adult=false',
-            `sort_by=${searchSort === 'oldest' ? 'first_air_date.asc' : searchSort === 'newest' ? 'first_air_date.desc' : 'popularity.desc'}`,
+            `sort_by=${searchSort === 'oldest' ? 'first_air_date.asc' : searchSort === 'newest' ? 'first_air_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'}`,
             searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
             searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
             searchYear ? `first_air_date_year=${searchYear}` : '',
@@ -850,12 +866,15 @@ useEffect(() => {
       if (searchCountry && !searchFiltersActive) {
         results = results.filter((item) => (item.origin_country || []).includes(searchCountry));
       }
+      if (searchMediaType !== 'all') results = results.filter((item) => item.media_type === searchMediaType);
       if (searchSort === 'newest' || searchSort === 'oldest') {
         results.sort((a, b) => {
           const dateA = a.release_date || a.first_air_date || '';
           const dateB = b.release_date || b.first_air_date || '';
           return searchSort === 'newest' ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB);
         });
+      } else if (searchSort === 'rating') {
+        results.sort((a, b) => Number(b.vote_average || 0) - Number(a.vote_average || 0));
       }
       return results;
     }
@@ -866,7 +885,7 @@ useEffect(() => {
       return watchlist.filter((item) => item.status === 'completed');
     }
     return query.trim() ? searchResults : movies;
-  }, [section, query, searchResults, movies, watchlist, watchlistFilter, searchCountry, searchYear, searchGenre, searchSort, searchFiltersActive]);
+  }, [section, query, searchResults, movies, watchlist, watchlistFilter, searchCountry, searchYear, searchGenre, searchMediaType, searchSort, searchFiltersActive]);
 
   const selectedWatchlistItem = selected && watchlist.find((item) =>
     Number(item.id) === Number(selected.id) &&
@@ -1439,16 +1458,17 @@ useEffect(() => {
               <label><span>COUNTRY</span><select value={searchCountry} onChange={(event) => setSearchCountry(event.target.value)}><option value="">All countries</option>{SEARCH_COUNTRIES.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label>
               <label><span>RELEASE YEAR</span><select value={searchYear} onChange={(event) => setSearchYear(event.target.value)}><option value="">Any year</option>{Array.from({ length: new Date().getFullYear() - 1949 }, (_, index) => new Date().getFullYear() - index).map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
               <label><span>GENRE</span><select value={searchGenre} onChange={(event) => setSearchGenre(event.target.value)}><option value="">All genres</option>{BROWSE_GENRES.map((genre) => <option key={genre.id} value={genre.id}>{genre.name}</option>)}</select></label>
-              <label><span>SORT BY</span><select value={searchSort} onChange={(event) => setSearchSort(event.target.value)}><option value="relevance">Relevance</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
+              <label><span>TYPE</span><select value={searchMediaType} onChange={(event) => setSearchMediaType(event.target.value)}><option value="all">Movies & series</option><option value="movie">Movies only</option><option value="tv">Series only</option></select></label>
+              <label><span>SORT BY</span><select value={searchSort} onChange={(event) => setSearchSort(event.target.value)}><option value="relevance">Relevance / Popular</option><option value="rating">Highest rated</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
             </div>
-            {(searchCountry || searchYear || searchGenre || searchSort !== 'relevance' || query) && <button className="search-clear-filters" onClick={() => { setQuery(''); setSearchCountry(''); setSearchYear(''); setSearchGenre(''); setSearchSort('relevance'); }}>Clear search and filters</button>}
+            {(searchCountry || searchYear || searchGenre || searchSort !== 'relevance' || query) && <button className="search-clear-filters" onClick={() => { setQuery(''); setSearchCountry(''); setSearchYear(''); setSearchGenre(''); setSearchMediaType('all'); setSearchSort('relevance'); }}>Clear search and filters</button>}
           </div>
           {query.trim() || searchFiltersActive ? <section className="catalog-section search-results-section">
             <div className="section-heading"><div><span className="eyebrow">{query.trim() ? 'MATCHING TITLES' : 'FILTERED DISCOVERY'}</span><h2>{query.trim() ? `Results for “${query}”` : 'Explore your filters'}</h2></div><span className="result-count">{visibleMovies.length} TITLES</span></div>
-            {loading && <div className="status-message">Finding titles for you…</div>}
+            {loading && <PosterSkeletons count={12} />}
             {!loading && error && <div className="status-message error"><strong>Search unavailable</strong><span>{error}</span></div>}
             {!loading && !error && visibleMovies.length === 0 && <div className="status-message">No titles match those filters. Try changing a filter or broadening your search.</div>}
-            <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails />)}</div>
+            {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails />)}</div>}
           </section> : <>
             <div className="search-recommendation-intro"><span className="eyebrow">PICKED AROUND YOUR TASTE</span><h2>Recommended for you</h2><p>Based on your watchlist and the titles you've explored.</p></div>
             <div className="movie-grid search-recommendation-grid">{[...likedRecommendations, ...topPicks, ...tvRecommendations].filter((item, index, all) => all.findIndex((other) => `${other.media_type || 'movie'}-${other.id}` === `${item.media_type || 'movie'}-${item.id}`) === index).slice(0, 18).map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} />)}</div>
@@ -1485,12 +1505,12 @@ useEffect(() => {
               )}
             </div>
           </div>
-          {loading && <div className="status-message">Loading the catalogue…</div>}
+          {loading && <PosterSkeletons count={12} />}
           {!loading && error && <div className="status-message error"><strong>Catalogue unavailable</strong><span>{error}</span>{!token && <span>Copy <code>.env.example</code> to <code>.env</code> and add your TMDB Read Access Token, then restart the dev server.</span>}</div>}
           {cloudError && <div className="status-message error"><strong>Cloud sync notice</strong><span>{cloudError}</span></div>}
           {!authReady && <div className="status-message">Checking account…</div>}
           {!loading && !error && visibleMovies.length === 0 && <div className="status-message">{section === 'Watchlist' && !query ? 'Your collection is empty. Open a title and add it to Plan to Watch to save it here.' : section === 'Watched' && !query ? 'No completed titles yet. Mark a title as completed when you finish it.' : section === 'Similar' ? 'No similar titles were found for this selection.' : 'No titles found. Try another search.'}</div>}
-          <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails={Boolean(query.trim())} />)}</div>
+          {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails={Boolean(query.trim())} />)}</div>}
         </section>
         {section === 'Discover' && !query && tvRecommendations.length > 0 && <section className="catalog-section recommendation-section">
           <div className="section-heading"><div><span className="eyebrow">SERIES WORTH YOUR TIME</span><h2>Trending TV shows</h2></div><span className="result-count">UPDATED WEEKLY</span></div>
