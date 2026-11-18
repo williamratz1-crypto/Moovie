@@ -2,15 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Film, Compass, Bookmark, UserRound, Play, Star, X, SlidersHorizontal, RefreshCw,
   Clapperboard, Sparkles, BookmarkCheck, LogOut, Mail, Lock,
-  User, Chrome, LoaderCircle, CheckCircle2
+  User, Chrome, LoaderCircle, CheckCircle2, PanelLeftClose, PanelLeftOpen,
+  Clock3, Heart, Trash2
 } from 'lucide-react';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, signInWithPopup, signOut,
-  updateProfile
+  updateProfile, deleteUser
 } from 'firebase/auth';
 import {
-  collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp
+  collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp,
+  getDocs, where, query as firestoreQuery, increment
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
 import './auth.css';
@@ -77,10 +79,16 @@ async function tmdb(path) {
   return response.json();
 }
 
+function normalizeWatchStatus(status) {
+  if (status === 'watched') return 'completed';
+  if (status === 'want') return 'plan_to_watch';
+  return ['plan_to_watch', 'watching', 'completed', 'dropped'].includes(status) ? status : 'plan_to_watch';
+}
+
 function readWatchlist() {
   try {
     const saved = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
-    return Array.isArray(saved) ? saved : [];
+    return Array.isArray(saved) ? saved.map((item) => ({ ...item, status: normalizeWatchStatus(item.status), totalWatchedMinutes: Number(item.totalWatchedMinutes) || 0 })) : [];
   } catch {
     return [];
   }
@@ -112,8 +120,9 @@ function toFirestoreItem(movie) {
     rating: Number(movie.vote_average) || 0,
     genreIds: Array.isArray(movie.genre_ids) ? movie.genre_ids.map(Number) : [],
     runtimeMinutes: movie.runtimeMinutes ?? null,
-    status: movie.status || 'want',
+    status: normalizeWatchStatus(movie.status),
     progressMinutes: movie.progressMinutes ?? null,
+    totalWatchedMinutes: Number(movie.totalWatchedMinutes) || 0,
     season: movie.season ?? null,
     episode: movie.episode ?? null,
     addedAt: movie.addedAt || serverTimestamp(),
@@ -136,8 +145,9 @@ function fromFirestoreItem(id, data) {
     vote_average: Number(data.rating) || 0,
     genre_ids: Array.isArray(data.genreIds) ? data.genreIds : [],
     runtimeMinutes: data.runtimeMinutes ?? null,
-    status: data.status || 'want',
+    status: normalizeWatchStatus(data.status),
     progressMinutes: data.progressMinutes ?? null,
+    totalWatchedMinutes: Number(data.totalWatchedMinutes) || 0,
     season: data.season ?? null,
     episode: data.episode ?? null,
     addedAt: data.addedAt || null,
@@ -217,8 +227,30 @@ function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefr
   );
 }
 
+function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRatedTitles, onOpenTitle, onSignOut, onDeleteAccount, onClearGuestData, authError, authBusy }) {
+ return <section className="profile-page">
+  <div className="profile-page-heading"><span className="eyebrow">YOUR MOOVIE SPACE</span><h1>Your profile.</h1><p>Your viewing history, taste profile and collection at a glance.</p></div>
+  <div className="profile-identity-card"><div className="profile-large-avatar">{(accountName||'M').charAt(0).toUpperCase()}</div><div className="profile-identity-copy"><strong>{accountName}</strong><span>{authUser?.email||'Guest account · saved locally on this device'}</span><small>{authUser?'CLOUD-SYNCED ACCOUNT':'LOCAL GUEST PROFILE'}</small></div>{authUser&&<span className="profile-sync-indicator">SYNCED</span>}</div>
+  <div className="profile-stat-grid">
+   <article className="profile-stat-card"><Clock3/><span>TRACKED WATCH TIME</span><strong>{stats.watchHours} hrs</strong><small>Time tracked during playback</small></article>
+   <article className="profile-stat-card"><Film/><span>MOVIES COMPLETED</span><strong>{stats.moviesCompleted}</strong><small>Marked as completed</small></article>
+   <article className="profile-stat-card"><Clapperboard/><span>SERIES COMPLETED</span><strong>{stats.seriesCompleted}</strong><small>Marked as completed</small></article>
+   <article className="profile-stat-card"><Star/><span>YOUR RATINGS</span><strong>{stats.ratingCount}</strong><small>Six-star ratings submitted</small></article>
+  </div>
+  <div className="profile-section-grid">
+   <section className="profile-panel"><div className="section-heading"><div><span className="eyebrow">YOUR TASTE</span><h2>Favourite genre</h2></div><Heart size={18}/></div><strong className="profile-favourite-genre">{stats.favoriteGenre||'Not enough history yet'}</strong><p>Based on genres attached to titles in your collection.</p></section>
+   <section className="profile-panel"><div className="section-heading"><div><span className="eyebrow">YOUR COLLECTION</span><h2>Watchlist breakdown</h2></div><Bookmark size={18}/></div><div className="profile-breakdown"><span>Watching <strong>{stats.watching}</strong></span><span>Plan to Watch <strong>{stats.planToWatch}</strong></span><span>Completed <strong>{stats.completed}</strong></span><span>Dropped <strong>{stats.dropped}</strong></span></div></section>
+  </div>
+  <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR LATEST ACTIVITY</span><h2>Recently watched</h2></div><span className="result-count">{recentlyWatched.length} TITLES</span></div>{recentlyWatched.length?<div className="movie-grid profile-movie-grid">{recentlyWatched.map(movie=><PosterCard key={getDocId(movie)} movie={movie} onSelect={onOpenTitle}/>)}</div>:<div className="status-message">Your recently watched titles will appear here as you play or complete something.</div>}</section>
+  <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR HIGHEST RATINGS</span><h2>Titles you loved</h2></div><span className="result-count">{stats.ratingCount} RATED</span></div>{topRatedTitles.length?<div className="movie-grid profile-movie-grid">{topRatedTitles.map(movie=><div className="profile-rated-item" key={getDocId(movie)}><PosterCard movie={movie} onSelect={onOpenTitle}/><span><Star size={12} fill="currentColor"/> {stats.ratings[getDocId(movie)]}/6</span></div>)}</div>:<div className="status-message">Rate titles out of six stars to build your favourites shelf.</div>}</section>
+  <section className="profile-account-panel"><div><span className="eyebrow">ACCOUNT & DATA</span><h2>Account settings</h2><p>{authUser?'Manage your Moovie account and stored viewing data.':'Guest data stays in this browser until you clear it or sign in.'}</p></div><div className="profile-account-actions">{authUser?<><button className="detail-watch-button" onClick={onSignOut}><LogOut size={15}/> Sign out</button><button className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account & data</button></>:<button className="profile-delete-button" onClick={onClearGuestData}><Trash2 size={15}/> Clear guest data</button>}</div>{authError&&<p className="auth-error profile-account-error">{authError}</p>}</section>
+ </section>;
+}
+
 export default function App() {
   const [section, setSection] = useState('Home');
+  const [watchlistFilter, setWatchlistFilter] = useState('all');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [movies, setMovies] = useState([]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [similarSource, setSimilarSource] = useState(null);
@@ -260,6 +292,7 @@ export default function App() {
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
+  const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
 
   const [authUser, setAuthUser] = useState(null);
@@ -366,6 +399,14 @@ export default function App() {
         duration <= 0
       ) return;
 
+      const key = `${mediaType}-${selected.id}`;
+      const previousSample = watchTimeSampleRef.current;
+      let pendingSeconds = previousSample.key === key ? previousSample.pendingSeconds : 0;
+      if (previousSample.key === key) {
+        const elapsed = currentTime - previousSample.currentTime;
+        if (elapsed > 0 && elapsed <= 15) pendingSeconds += elapsed;
+      }
+      watchTimeSampleRef.current = { key, currentTime, pendingSeconds };
       const completionKey = `${mediaType}-${selected.id}`;
       const isMovieComplete = mediaType === 'movie' && currentTime / duration >= 0.95;
       const finalEpisode = selected.last_episode_to_air;
@@ -384,13 +425,14 @@ export default function App() {
       const episode = mediaType === 'tv' ? Number(payload.episode) || 1 : null;
 
       // Avoid a Firestore write every second: save once per 10 seconds watched.
-      const key = `${mediaType}-${selected.id}`;
       const bucket = Math.floor(currentTime / 10);
       if (
         lastProgressSaveRef.current.key === key &&
         lastProgressSaveRef.current.bucket === bucket
       ) return;
       lastProgressSaveRef.current = { key, bucket };
+      const trackedMinutes = pendingSeconds / 60;
+      watchTimeSampleRef.current.pendingSeconds = 0;
 
       if (authUser) {
         const itemRef = doc(
@@ -407,6 +449,7 @@ export default function App() {
           runtimeMinutes,
           season,
           episode,
+          totalWatchedMinutes: increment(trackedMinutes),
           updatedAt: serverTimestamp(),
         }, { merge: true }).catch((writeError) => {
           setCloudError(`Playback progress could not sync: ${authErrorMessage(writeError)}`);
@@ -429,6 +472,8 @@ export default function App() {
                     runtimeMinutes,
                     season,
                     episode,
+                    totalWatchedMinutes: (Number(item.totalWatchedMinutes) || 0) + trackedMinutes,
+                    updatedAt: Date.now(),
                   }
                 : item
             );
@@ -442,6 +487,8 @@ export default function App() {
             runtimeMinutes,
             season,
             episode,
+            totalWatchedMinutes: trackedMinutes,
+            updatedAt: Date.now(),
           }, ...current];
         });
       }
@@ -605,7 +652,7 @@ export default function App() {
       return watchlist.find((item) => getDocId(item) === key) || { id: Number(id), media_type: mediaType };
     });
     const watchedSeed = watchlist.find((item) =>
-      item.status === 'watched' || item.status === 'watching' || Number(item.progressMinutes) > 0
+      item.status === 'completed' || item.status === 'watching' || Number(item.progressMinutes) > 0
     ) || watchlist[0] || null;
     const seeds = ratingSeeds.length ? ratingSeeds : (watchedSeed ? [watchedSeed] : []);
     const seed = seeds[0] || null;
@@ -812,20 +859,20 @@ useEffect(() => {
       return results;
     }
     if (!query.trim() && section === 'Watchlist') {
-      return watchlist.filter((item) => item.status !== 'watched');
+      return watchlist.filter((item) => watchlistFilter === 'all' || item.status === watchlistFilter);
     }
     if (!query.trim() && section === 'Watched') {
-      return watchlist.filter((item) => item.status === 'watched');
+      return watchlist.filter((item) => item.status === 'completed');
     }
     return query.trim() ? searchResults : movies;
-  }, [section, query, searchResults, movies, watchlist, searchCountry, searchYear, searchGenre, searchSort, searchFiltersActive]);
+  }, [section, query, searchResults, movies, watchlist, watchlistFilter, searchCountry, searchYear, searchGenre, searchSort, searchFiltersActive]);
 
   const selectedWatchlistItem = selected && watchlist.find((item) =>
     Number(item.id) === Number(selected.id) &&
     (item.media_type || 'movie') === (selected.media_type || 'movie')
   );
-  const isSaved = Boolean(selectedWatchlistItem && selectedWatchlistItem.status !== 'watched');
-  const isWatched = Boolean(selectedWatchlistItem?.status === 'watched');
+  const isSaved = Boolean(selectedWatchlistItem && selectedWatchlistItem.status !== 'completed' && selectedWatchlistItem.status !== 'dropped');
+  const isWatched = Boolean(selectedWatchlistItem?.status === 'completed');
 
   async function saveRating(movie, value) {
     const rating = Math.max(1, Math.min(6, Number(value)));
@@ -853,12 +900,13 @@ useEffect(() => {
       Number(item.id) === Number(movie.id) &&
       (item.media_type || 'movie') === type
     );
-    const isActiveWatchlistItem = Boolean(existing && existing.status !== 'watched');
+    const isActiveWatchlistItem = Boolean(existing && existing.status !== 'completed' && existing.status !== 'dropped');
     const watchlistItem = {
       ...(existing || {}),
       ...movie,
       media_type: type,
-      status: 'want',
+      status: 'plan_to_watch',
+      totalWatchedMinutes: Number(existing?.totalWatchedMinutes) || 0,
     };
 
     if (authUser) {
@@ -898,56 +946,27 @@ useEffect(() => {
     });
   }
 
-  async function toggleWatched(movie) {
+  async function setWatchStatus(movie, status) {
     if (!movie) return;
     const mediaType = movie.media_type || 'movie';
-    const existing = watchlist.find((item) =>
-      Number(item.id) === Number(movie.id) &&
-      (item.media_type || 'movie') === mediaType
-    );
-    const nextStatus = existing?.status === 'watched' ? 'want' : 'watched';
-    const updatedItem = {
-      ...(existing || {}),
-      ...movie,
-      media_type: mediaType,
-      status: nextStatus,
-      ...(nextStatus === 'want'
-        ? { progressMinutes: 0, season: null, episode: null }
-        : {}),
-    };
-
+    const key = getDocId({ ...movie, media_type: mediaType });
+    const existing = watchlist.find((item) => getDocId(item) === key);
+    const updatedItem = { ...(existing || {}), ...movie, media_type: mediaType, status: normalizeWatchStatus(status), updatedAt: Date.now() };
     if (authUser) {
-      const itemRef = doc(
-        db,
-        'users',
-        authUser.uid,
-        'watchlist',
-        getDocId({ ...movie, media_type: mediaType })
-      );
       try {
-        await setDoc(itemRef, toFirestoreItem(updatedItem), { merge: true });
+        await setDoc(doc(db, 'users', authUser.uid, 'watchlist', key), toFirestoreItem(updatedItem), { merge: true });
         setCloudError('');
-      } catch (writeError) {
-        setCloudError(`Could not update your watched list: ${authErrorMessage(writeError)}`);
-      }
+      } catch (writeError) { setCloudError(`Could not update your collection: ${authErrorMessage(writeError)}`); }
       return;
     }
+    setWatchlist((current) => current.some((item) => getDocId(item) === key)
+      ? current.map((item) => getDocId(item) === key ? updatedItem : item)
+      : [updatedItem, ...current]);
+  }
 
-    setWatchlist((current) => {
-      const found = current.some((item) =>
-        Number(item.id) === Number(movie.id) &&
-        (item.media_type || 'movie') === mediaType
-      );
-      if (found) {
-        return current.map((item) =>
-          Number(item.id) === Number(movie.id) &&
-          (item.media_type || 'movie') === mediaType
-            ? updatedItem
-            : item
-        );
-      }
-      return [updatedItem, ...current];
-    });
+  async function toggleWatched(movie) {
+    const existing = watchlist.find((item) => getDocId(item) === getDocId(movie));
+    await setWatchStatus(movie, existing?.status === 'completed' ? 'plan_to_watch' : 'completed');
   }
 
   async function openDetails(movie) {
@@ -1062,6 +1081,7 @@ useEffect(() => {
     // Ensure the watchlist entry exists before progress updates arrive.
     await markAsWatching(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
+    watchTimeSampleRef.current = { key: getDocId(playableMovie), currentTime: 0, pendingSeconds: 0 };
 
     window.history.pushState({ mooviePlayer: true }, '', window.location.href);
     playerHistoryRef.current = true;
@@ -1148,23 +1168,63 @@ useEffect(() => {
 
   const accountName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Movie lover';
   const accountInitial = accountName.charAt(0).toUpperCase() || 'M';
+  const ratingEntries = Object.entries(ratings).filter(([, value]) => Number(value) >= 1 && Number(value) <= 6);
+  const profileRatedTitles = watchlist.filter((item) => Number(ratings[getDocId(item)]) >= 1).sort((a,b) => Number(ratings[getDocId(b)]) - Number(ratings[getDocId(a)]));
+  const profileRecentlyWatched = [...watchlist].filter((item) => Number(item.totalWatchedMinutes)>0 || item.status==='completed' || item.status==='watching').sort((a,b) => {
+    const stamp=(item)=>{const v=item.updatedAt||item.addedAt;if(v?.toMillis)return v.toMillis();if(v?.seconds)return v.seconds*1000;return Number(v)||0;};return stamp(b)-stamp(a);
+  }).slice(0,12);
+  const genreTotals = new Map();
+  watchlist.forEach((item)=>(item.genre_ids||[]).forEach((id)=>genreTotals.set(Number(id),(genreTotals.get(Number(id))||0)+1)));
+  const favouriteGenreId=[...genreTotals.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const profileStats={
+    watchHours:(watchlist.reduce((sum,item)=>sum+(Number(item.totalWatchedMinutes)||0),0)/60).toFixed(1),
+    moviesCompleted:watchlist.filter((item)=>item.status==='completed'&&item.media_type!=='tv').length,
+    seriesCompleted:watchlist.filter((item)=>item.status==='completed'&&item.media_type==='tv').length,
+    ratingCount:ratingEntries.length,ratings,
+    favoriteGenre:BROWSE_GENRES.find((genre)=>genre.id===favouriteGenreId)?.name||'',
+    watching:watchlist.filter((item)=>item.status==='watching').length,
+    planToWatch:watchlist.filter((item)=>item.status==='plan_to_watch').length,
+    completed:watchlist.filter((item)=>item.status==='completed').length,
+    dropped:watchlist.filter((item)=>item.status==='dropped').length,
+  };
+  async function deleteAccountAndData(){
+    if(!authUser||!window.confirm('Delete your Moovie account and its stored data? This cannot be undone.'))return;
+    setAuthBusy(true);setAuthError('');
+    try{
+      for(const name of ['watchlist','ratings','following','notifications']){
+        const snapshot=await getDocs(collection(db,'users',authUser.uid,name));
+        await Promise.all(snapshot.docs.map((entry)=>deleteDoc(entry.ref)));
+      }
+      const reviews=await getDocs(firestoreQuery(collection(db,'reviews'),where('uid','==',authUser.uid)));
+      await Promise.all(reviews.docs.map((entry)=>deleteDoc(entry.ref)));
+      await deleteDoc(doc(db,'profiles',authUser.uid));
+      localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);
+      await deleteUser(authUser);setWatchlist([]);setRatings({});setSection('Home');
+    }catch(failure){setAuthError(failure?.code==='auth/requires-recent-login'?'For security, sign in again before deleting your account.':authErrorMessage(failure));}
+    finally{setAuthBusy(false);}
+  }
+  function clearGuestData(){
+    if(!window.confirm('Clear this browser’s Moovie watchlist and ratings?'))return;
+    localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);setWatchlist([]);setRatings({});
+  }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
         <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setSection('Home'); setQuery(''); }}>
           <span className="brand-mark"><Clapperboard size={21} /></span><span>moovie<span className="brand-dot">.</span></span>
         </a>
-        <div className="side-label">MENU</div>
+        <div className="sidebar-menu-row"><div className="side-label">MENU</div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed((value)=>!value)} aria-label={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'} title={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}>{sidebarCollapsed?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}</button></div>
         <nav className="side-nav">
           <button className={section === 'Home' ? 'active' : ''} onClick={() => { setSection('Home'); setQuery(''); }}><Film /> Home</button>
           <button className={section === 'Discover' ? 'active' : ''} onClick={() => { setSection('Discover'); setQuery(''); }}><Compass /> Discover</button>
           <button className={section === 'Search' ? 'active' : ''} onClick={() => { setSection('Search'); setQuery(''); setError(''); }}><Search /> Search</button>
-          <button className={section === 'Watchlist' ? 'active' : ''} onClick={() => { setSection('Watchlist'); setQuery(''); setError(''); }}><Bookmark /> Watchlist <span className="watchlist-count">{watchlist.filter((item) => item.status !== 'watched').length}</span></button>
-          <button className={section === 'Watched' ? 'active' : ''} onClick={() => { setSection('Watched'); setQuery(''); setError(''); }}><CheckCircle2 /> Watched <span className="watchlist-count">{watchlist.filter((item) => item.status === 'watched').length}</span></button>
+          <button className={section === 'Profile' ? 'active' : ''} onClick={() => { setSection('Profile'); setQuery(''); setError(''); }}><UserRound /> Profile</button>
+          <button className={section === 'Watchlist' ? 'active' : ''} onClick={() => { setSection('Watchlist'); setQuery(''); setError(''); }}><Bookmark /> Watchlist <span className="watchlist-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped').length}</span></button>
+          <button className={section === 'Watched' ? 'active' : ''} onClick={() => { setSection('Watched'); setQuery(''); setError(''); }}><CheckCircle2 /> Completed <span className="watchlist-count">{watchlist.filter((item) => item.status === 'completed').length}</span></button>
         </nav>
         <div className="sidebar-bottom">
-          <button className="profile-chip profile-chip-button" onClick={() => setAuthOpen(true)}>
+          <button className="profile-chip profile-chip-button" onClick={() => { setSection('Profile'); setQuery(''); }}>
             <div className="avatar">{authUser ? accountInitial : 'M'}</div>
             <div><strong>{authUser ? accountName : 'Movie lover'}</strong><span>{authUser ? 'Signed in' : 'Guest account'}</span></div>
           </button>
@@ -1175,7 +1235,7 @@ useEffect(() => {
         <header className="topbar">
           <div className="mobile-brand"><Clapperboard size={20} /> moovie<span>.</span></div>
           <div className="search-box"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search movies, series..." /><kbd>⌘ K</kbd></div>
-          <button className="profile-button" aria-label="Open account" onClick={() => setAuthOpen(true)}><UserRound size={19} /></button>
+          <button className="profile-button" aria-label="Open profile" onClick={() => { setSection('Profile'); setQuery(''); }}><UserRound size={19} /></button>
         </header>
 
 {!query && section === 'Home' && movies[heroIndex] && (() => {
@@ -1185,7 +1245,7 @@ useEffect(() => {
   const featuredSaved = watchlist.some((item) =>
     Number(item.id) === Number(featured.id) &&
     (item.media_type || 'movie') === featuredType &&
-    item.status !== 'watched'
+    item.status !== 'completed' && item.status !== 'dropped'
   );
   const releaseDate = featured.release_date || featured.first_air_date || '';
 
@@ -1273,15 +1333,15 @@ useEffect(() => {
 
 
         {section === 'Home' && !query && watchlist.some((item) =>
-          item.status !== 'watched' &&
+          item.status !== 'completed' && item.status !== 'dropped' &&
           (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0)
         ) && <section className="continue-section">
           <div className="section-heading">
             <div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Continue watching</h2></div>
-            <span className="result-count">{watchlist.filter((item) => item.status !== 'watched' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0)).length} TITLES</span>
+            <span className="result-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0)).length} TITLES</span>
           </div>
           <div className="continue-grid">
-            {watchlist.filter((item) => item.status !== 'watched' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0))
+            {watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0))
               .map((item) => {
                 const runtime = Number(item.runtimeMinutes) || 0;
                 const progress = Number(item.progressMinutes) || 0;
@@ -1354,7 +1414,7 @@ useEffect(() => {
           </div>
         </section>}
 
-        {section === 'Search' ? <section className="search-discovery-page">
+        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
           <div className="search-discovery-heading">
             <span className="eyebrow">YOUR NEXT WATCH STARTS HERE</span>
             <h1>What's on your mind?</h1>
@@ -1383,6 +1443,7 @@ useEffect(() => {
             {![...likedRecommendations, ...topPicks, ...tvRecommendations].length && <div className="status-message">Moovie is preparing recommendations. Save or watch a few titles to personalise this space.</div>}
           </>}
         </section> : <>
+        {section === 'Watchlist' && !query && <div className="watchlist-status-tabs" role="group" aria-label="Filter watchlist by status">{[['all','All titles'],['watching','Watching'],['plan_to_watch','Plan to Watch'],['completed','Completed'],['dropped','Dropped']].map(([value,label])=><button key={value} className={watchlistFilter===value?'active':''} onClick={()=>setWatchlistFilter(value)}>{label}<span>{value==='all'?watchlist.length:watchlist.filter((item)=>item.status===value).length}</span></button>)}</div>}
         <section className="catalog-section">
           <div className="section-heading">
             <div>
@@ -1390,7 +1451,7 @@ useEffect(() => {
                 {query ? 'MATCHING TITLES'
                   : section === 'Discover' ? 'CRITIC FAVOURITES'
                     : section === 'Watchlist' ? 'YOUR COLLECTION'
-                      : section === 'Watched' ? 'YOUR WATCH HISTORY'
+                      : section === 'Watched' ? 'YOUR COMPLETED TITLES'
                         : section === 'Similar' ? 'MORE TO EXPLORE'
                           : 'UPDATED WEEKLY'}
               </span>
@@ -1398,7 +1459,7 @@ useEffect(() => {
                 {query ? `Results for “${query}”`
                   : section === 'Discover' ? 'Top rated'
                     : section === 'Watchlist' ? 'Watchlist'
-                      : section === 'Watched' ? 'Watched'
+                      : section === 'Watched' ? 'Completed'
                         : section === 'Similar' ? `Similar to ${similarSource?.title || similarSource?.name || 'this title'}`
                           : 'Trending this week'}
               </h2>
@@ -1416,7 +1477,7 @@ useEffect(() => {
           {!loading && error && <div className="status-message error"><strong>Catalogue unavailable</strong><span>{error}</span>{!token && <span>Copy <code>.env.example</code> to <code>.env</code> and add your TMDB Read Access Token, then restart the dev server.</span>}</div>}
           {cloudError && <div className="status-message error"><strong>Cloud sync notice</strong><span>{cloudError}</span></div>}
           {!authReady && <div className="status-message">Checking account…</div>}
-          {!loading && !error && visibleMovies.length === 0 && <div className="status-message">{section === 'Watchlist' && !query ? 'Your watchlist is empty. Open a title and choose “Add to watchlist” to save it here.' : section === 'Watched' && !query ? 'No watched titles yet. Open a title and mark it as watched when you finish it.' : section === 'Similar' ? 'No similar titles were found for this selection.' : 'No titles found. Try another search.'}</div>}
+          {!loading && !error && visibleMovies.length === 0 && <div className="status-message">{section === 'Watchlist' && !query ? 'Your collection is empty. Open a title and add it to Plan to Watch to save it here.' : section === 'Watched' && !query ? 'No completed titles yet. Mark a title as completed when you finish it.' : section === 'Similar' ? 'No similar titles were found for this selection.' : 'No titles found. Try another search.'}</div>}
           <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails={Boolean(query.trim())} />)}</div>
         </section>
         {section === 'Discover' && !query && tvRecommendations.length > 0 && <section className="catalog-section recommendation-section">
@@ -1452,12 +1513,13 @@ useEffect(() => {
                 <button className="detail-play-button" onClick={() => openPlayer(selected)} disabled={!buildPlayerUrl(selected) || playerOpen}>
                   <Play size={16} fill="currentColor" /> Watch Now
                 </button>
-                <button className={`detail-watch-button ${isSaved ? 'saved' : ''}`} onClick={() => toggleWatchlist(selected)}>
-                  {isSaved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
-                  {isSaved ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                <button className={`detail-watch-button ${isSaved?'saved':''}`} onClick={()=>toggleWatchlist(selected)}>
+                  {isSaved?<BookmarkCheck size={17}/>:<Bookmark size={17}/>}
+                  {isSaved?'Remove from Watchlist':'Add to Watchlist'}
                 </button>
+                <label className="detail-status-select"><span>COLLECTION STATUS</span><select value={selectedWatchlistItem?.status||'plan_to_watch'} onChange={(event)=>setWatchStatus(selected,event.target.value)}><option value="plan_to_watch">Plan to Watch</option><option value="watching">Watching</option><option value="completed">Completed</option><option value="dropped">Dropped</option></select></label>
                 <button className={`detail-watch-button ${isWatched ? 'saved' : ''}`} onClick={() => toggleWatched(selected)}>
-                  <CheckCircle2 size={17} /> {isWatched ? 'Mark as Unwatched' : 'Mark as Watched'}
+                  <CheckCircle2 size={17} /> {isWatched ? 'Mark as Not Completed' : 'Mark as Completed'}
                 </button>
                 <button className="detail-watch-button" onClick={findTrailer} disabled={trailerLoading}>
                   <Play size={16} fill="currentColor" /> {trailerLoading ? 'Finding Trailer…' : 'Find Trailer'}
