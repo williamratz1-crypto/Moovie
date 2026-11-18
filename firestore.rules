@@ -17,6 +17,11 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
+    // Personal six-star movie and series ratings.
+    match /users/{uid}/ratings/{docId} {
+      allow read, write: if isOwner(uid);
+    }
+
     match /users/{uid}/following/{targetUid} {
       allow read, write: if isOwner(uid);
     }
