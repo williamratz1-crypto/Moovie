@@ -54,7 +54,7 @@ export default async function handler(req, res) {
     const searchResponse = await fetch(API_BASE + 'subject/search', {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ keyword: [title, year].filter(Boolean).join(' '), page: 1, perPage: 20, subjectType: 0 }),
+      body: JSON.stringify({ keyword: title, page: 1, perPage: 20, subjectType: 0 }),
     });
     if (!searchResponse.ok) throw new Error('OmniSave title search failed.');
     const searchData = await readJson(searchResponse);
