@@ -128,7 +128,6 @@ function toFirestoreItem(movie) {
     totalWatchedMinutes: Number(movie.totalWatchedMinutes) || 0,
     season: movie.season ?? null,
     episode: movie.episode ?? null,
-    playerProvider: ['vidstuck', 'omnisave'].includes(movie.playerProvider) ? movie.playerProvider : null,
     addedAt: movie.addedAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -154,7 +153,6 @@ function fromFirestoreItem(id, data) {
     totalWatchedMinutes: Number(data.totalWatchedMinutes) || 0,
     season: data.season ?? null,
     episode: data.episode ?? null,
-    playerProvider: ['vidstuck', 'omnisave'].includes(data.playerProvider) ? data.playerProvider : null,
     addedAt: data.addedAt || null,
     updatedAt: data.updatedAt || null,
     firestoreId: id,
@@ -307,16 +305,9 @@ export default function App() {
   const [trailerLoading, setTrailerLoading] = useState(false);
   const [trailerMessage, setTrailerMessage] = useState('');
   const [playerOpen, setPlayerOpen] = useState(false);
-  const [providerPromptMovie, setProviderPromptMovie] = useState(null);
-  const [activeProvider, setActiveProvider] = useState('vidstuck');
-  const [omniVideoUrl, setOmniVideoUrl] = useState('');
-  const [omniLoading, setOmniLoading] = useState(false);
-  const [omniError, setOmniError] = useState('');
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
-  const playerVideoRef = useRef(null);
-  const omniLastSaveRef = useRef({ key: '', bucket: -1, currentTime: 0 });
   const detailPageRef = useRef(null);
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
@@ -584,43 +575,6 @@ export default function App() {
 
     return unsubscribe;
   }, [authUser, authReady]);
-
-  // Resolve OmniSave streams on demand. Signed stream URLs are never persisted.
-  useEffect(() => {
-    if (!playerOpen || activeProvider !== 'omnisave' || !selected) return undefined;
-    let cancelled = false;
-
-    async function resolveOmniStream() {
-      setOmniLoading(true);
-      setOmniError('');
-      setOmniVideoUrl('');
-      try {
-        const releaseDate = selected.release_date || selected.first_air_date || '';
-        const response = await fetch('/api/omnisave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: selected.title || selected.name,
-            year: releaseDate.slice(0, 4),
-            mediaType: selected.media_type === 'tv' ? 'tv' : 'movie',
-            season: selected.season || 1,
-            episode: selected.episode || 1,
-          }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'OmniSave could not find a playable stream.');
-        if (!result.url || !/^https:\/\//i.test(result.url)) throw new Error('OmniSave returned an invalid stream URL.');
-        if (!cancelled) setOmniVideoUrl(result.url);
-      } catch (resolveError) {
-        if (!cancelled) setOmniError(resolveError.message || 'OmniSave could not load this title.');
-      } finally {
-        if (!cancelled) setOmniLoading(false);
-      }
-    }
-
-    resolveOmniStream();
-    return () => { cancelled = true; };
-  }, [playerOpen, activeProvider, selected]);
 
   // Keep a local backup for every account so ratings survive reloads and cloud outages.
   useEffect(() => {
@@ -1148,7 +1102,6 @@ useEffect(() => {
         if (existing) {
           await setDoc(itemRef, {
             status: 'watching',
-            playerProvider: movie.playerProvider || null,
             updatedAt: serverTimestamp(),
           }, { merge: true });
         } else {
@@ -1173,7 +1126,7 @@ useEffect(() => {
       if (found) {
         return current.map((item) =>
           Number(item.id) === Number(movie.id) && (item.media_type || 'movie') === mediaType
-            ? { ...item, status: 'watching', playerProvider: movie.playerProvider || item.playerProvider || null }
+            ? { ...item, status: 'watching' }
             : item
         );
       }
@@ -1186,7 +1139,7 @@ useEffect(() => {
     });
   }
 
-  async function openPlayer(movieToPlay = selected, requestedProvider = movieToPlay?.playerProvider) {
+  async function openPlayer(movieToPlay = selected) {
     if (playerOpen || !movieToPlay) return;
 
     const playableMovie = {
@@ -1195,119 +1148,19 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
-    const savedProvider = watchlist.find((item) => getDocId(item) === getDocId(playableMovie))?.playerProvider;
-    const provider = [requestedProvider, playableMovie.playerProvider, savedProvider]
-      .find((value) => ['vidstuck', 'omnisave'].includes(value));
-    if (!provider) {
-      setProviderPromptMovie(playableMovie);
-      return;
-    }
-
-    const movieWithProvider = { ...playableMovie, playerProvider: provider };
-    setProviderPromptMovie(null);
-    setSelected(movieWithProvider);
-    setActiveProvider(provider);
-    setOmniVideoUrl('');
-    setOmniError('');
-    omniLastSaveRef.current = { key: getDocId(movieWithProvider), bucket: -1, currentTime: 0 };
+    setSelected(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
-    watchTimeSampleRef.current = { key: getDocId(movieWithProvider), currentTime: 0, pendingSeconds: 0 };
+    watchTimeSampleRef.current = { key: getDocId(playableMovie), currentTime: 0, pendingSeconds: 0 };
 
-    // Open playback immediately; persist the provider with the watchlist record.
+    // Open playback immediately; update the watchlist in the background.
     window.history.pushState({ mooviePlayer: true }, '', window.location.href);
     playerHistoryRef.current = true;
     setPlayerOpen(true);
-    void markAsWatching(movieWithProvider);
-  }
-
-  function choosePlayerProvider(provider) {
-    if (!providerPromptMovie) return;
-    const movie = providerPromptMovie;
-    setProviderPromptMovie(null);
-    void openPlayer(movie, provider);
-  }
-
-  function changePlayerProvider() {
-    if (!selected) return;
-    const movie = { ...selected, playerProvider: null };
-    closePlayer();
-    setProviderPromptMovie(movie);
-  }
-
-  function handleOmniTimeUpdate(event) {
-    const video = event.currentTarget;
-    if (!selected || !Number.isFinite(video.currentTime) || !Number.isFinite(video.duration) || video.duration <= 0) return;
-
-    const mediaType = selected.media_type === 'tv' ? 'tv' : 'movie';
-    const key = getDocId({ ...selected, media_type: mediaType });
-    const currentTime = video.currentTime;
-    const duration = video.duration;
-    const bucket = Math.floor(currentTime / 10);
-    const previous = omniLastSaveRef.current;
-    if (previous.key === key && previous.bucket === bucket) return;
-
-    const elapsed = previous.key === key ? currentTime - previous.currentTime : 0;
-    const trackedMinutes = Math.max(0, Math.min(elapsed, 15)) / 60;
-    omniLastSaveRef.current = { key, bucket, currentTime };
-
-    const progressMinutes = Math.round((currentTime / 60) * 10) / 10;
-    const runtimeMinutes = Math.round(duration / 60);
-    const season = mediaType === 'tv' ? Number(selected.season) || 1 : null;
-    const episode = mediaType === 'tv' ? Number(selected.episode) || 1 : null;
-
-    if (authUser) {
-      const itemRef = doc(db, 'users', authUser.uid, 'watchlist', key);
-      setDoc(itemRef, {
-        status: 'watching',
-        playerProvider: 'omnisave',
-        progressMinutes,
-        runtimeMinutes,
-        season,
-        episode,
-        totalWatchedMinutes: increment(trackedMinutes),
-        updatedAt: serverTimestamp(),
-      }, { merge: true }).catch((writeError) => {
-        setCloudError(`Playback progress could not sync: ${authErrorMessage(writeError)}`);
-      });
-    } else {
-      setWatchlist((current) => {
-        const exists = current.some((item) => getDocId(item) === key);
-        const update = (item) => ({
-          ...item,
-          ...selected,
-          media_type: mediaType,
-          status: 'watching',
-          playerProvider: 'omnisave',
-          progressMinutes,
-          runtimeMinutes,
-          season,
-          episode,
-          totalWatchedMinutes: (Number(item.totalWatchedMinutes) || 0) + trackedMinutes,
-          updatedAt: Date.now(),
-        });
-        return exists
-          ? current.map((item) => getDocId(item) === key ? update(item) : item)
-          : [update({ totalWatchedMinutes: 0 }), ...current];
-      });
-    }
-
-    const completionKey = key;
-    const isMovieComplete = mediaType === 'movie' && currentTime / duration >= 0.95;
-    const finalEpisode = selected.last_episode_to_air;
-    const isFinalTvEpisode = mediaType === 'tv' && finalEpisode &&
-      season === Number(finalEpisode.season_number) &&
-      episode === Number(finalEpisode.episode_number) && currentTime / duration >= 0.95;
-    if ((isMovieComplete || isFinalTvEpisode) && !ratings[completionKey] && !completionPromptedRef.current.has(completionKey)) {
-      completionPromptedRef.current.add(completionKey);
-      setRatingPrompt({ ...selected, media_type: mediaType });
-      closePlayer();
-    }
+    void markAsWatching(playableMovie);
   }
 
   function closePlayer() {
     setPlayerOpen(false);
-    setOmniVideoUrl('');
-    setOmniLoading(false);
     if (playerHistoryRef.current) {
       playerHistoryRef.current = false;
       window.history.back();
@@ -1847,26 +1700,6 @@ useEffect(() => {
         </section>
       </div>}
 
-      {providerPromptMovie && <div className="provider-prompt-backdrop" role="dialog" aria-modal="true" aria-label="Choose a playback provider">
-        <section className="provider-prompt-card">
-          <button className="provider-prompt-close" onClick={() => setProviderPromptMovie(null)} aria-label="Cancel provider selection"><X size={19} /></button>
-          <span className="eyebrow">CHOOSE YOUR PLAYER</span>
-          <h2>Where should we play it?</h2>
-          <p>{providerPromptMovie.title || providerPromptMovie.name}</p>
-          <button className="provider-choice" onClick={() => choosePlayerProvider('vidstuck')}>
-            <span className="provider-choice-icon"><Play size={19} /></span>
-            <span><strong>Vidstuck</strong><small>Fast embedded player</small></span>
-            <span className="provider-choice-arrow">→</span>
-          </button>
-          <button className="provider-choice" onClick={() => choosePlayerProvider('omnisave')}>
-            <span className="provider-choice-icon"><Film size={19} /></span>
-            <span><strong>OmniSave</strong><small>Direct MP4 stream</small></span>
-            <span className="provider-choice-arrow">→</span>
-          </button>
-          <button className="provider-prompt-cancel" onClick={() => setProviderPromptMovie(null)}>Cancel</button>
-        </section>
-      </div>}
-
       {ratingPrompt && <div className="rating-prompt-backdrop" role="dialog" aria-modal="true" aria-label="Rate completed title">
         <section className="rating-prompt-card">
           <span className="eyebrow">YOU FINISHED WATCHING</span>
@@ -1894,40 +1727,22 @@ useEffect(() => {
                 <span>{selected.media_type === 'tv' ? 'TV SERIES · SEASON 1 · EPISODE 1' : 'NOW PLAYING ON MOOVIE'}</span>
               </div>
             </div>
-            <div className="player-header-actions">
-              <button className="player-source-switch" onClick={changePlayerProvider}><RefreshCw size={13} /> Switch source</button>
-              <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
-            </div>
+            <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
           <div className="player-frame-wrap" ref={playerFrameWrapRef}>
-            {activeProvider === 'omnisave' ? (
-              omniLoading ? <div className="player-provider-message">Finding an available OmniSave stream…</div>
-                : omniVideoUrl ? <video
-                    ref={playerVideoRef}
-                    className="player-frame player-video"
-                    src={omniVideoUrl}
-                    controls
-                    autoPlay
-                    playsInline
-                    onTimeUpdate={handleOmniTimeUpdate}
-                    onError={() => { setOmniVideoUrl(''); setOmniError('This OmniSave stream could not be played. Try Vidstuck for this title.'); }}
-                  />
-                  : <div className="player-provider-message player-provider-error">{omniError || 'OmniSave could not load this title.'}</div>
-            ) : (
-              <iframe
-                ref={playerFrameRef}
-                key={buildPlayerUrl(selected)}
-                className="player-frame"
-                src={buildPlayerUrl(selected)}
-                title={`Moovie player: ${selected.title || selected.name}`}
-                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                allowFullScreen
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            )}
+            <iframe
+              ref={playerFrameRef}
+              key={buildPlayerUrl(selected)}
+              className="player-frame"
+              src={buildPlayerUrl(selected)}
+              title={`Moovie player: ${selected.title || selected.name}`}
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
           </div>
           <div className="player-footer">
-            <span>{activeProvider === 'omnisave' ? 'OMNISAVE PLAYER' : 'VIDSTUCK PLAYER'}</span>
+            <span>MOOVIE PLAYER</span>
             <span>ESC · CLOSE &nbsp;&nbsp; F · FULLSCREEN</span>
           </div>
         </section>
