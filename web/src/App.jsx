@@ -1227,6 +1227,13 @@ useEffect(() => {
     void openPlayer(movie, provider);
   }
 
+  function changePlayerProvider() {
+    if (!selected) return;
+    const movie = { ...selected, playerProvider: null };
+    closePlayer();
+    setProviderPromptMovie(movie);
+  }
+
   function handleOmniTimeUpdate(event) {
     const video = event.currentTarget;
     if (!selected || !Number.isFinite(video.currentTime) || !Number.isFinite(video.duration) || video.duration <= 0) return;
@@ -1887,7 +1894,10 @@ useEffect(() => {
                 <span>{selected.media_type === 'tv' ? 'TV SERIES · SEASON 1 · EPISODE 1' : 'NOW PLAYING ON MOOVIE'}</span>
               </div>
             </div>
-            <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
+            <div className="player-header-actions">
+              <button className="player-source-switch" onClick={changePlayerProvider}><RefreshCw size={13} /> Switch source</button>
+              <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
+            </div>
           </header>
           <div className="player-frame-wrap" ref={playerFrameWrapRef}>
             {activeProvider === 'omnisave' ? (
