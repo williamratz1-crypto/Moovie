@@ -63,17 +63,19 @@ export default async function handler(req, res) {
     const typeMatches = usable.filter((item) => mediaType === 'tv' ? Number(item.subjectType) !== 1 : Number(item.subjectType) === 1);
     const candidates = typeMatches.length ? typeMatches : usable;
     const wantedTitle = normalizeTitle(title);
-    candidates.sort((a, b) => {
-      const score = (item) => {
-        const itemTitle = normalizeTitle(item.title);
-        const exact = itemTitle === wantedTitle ? 100 : (itemTitle.includes(wantedTitle) || wantedTitle.includes(itemTitle) ? 50 : 0);
-        const itemYear = String(item.releaseDate || '').slice(0, 4);
-        return exact + (year && itemYear === year ? 20 : 0);
-      };
-      return score(b) - score(a);
+    const titleMatches = candidates.filter((item) => {
+      const itemTitle = normalizeTitle(item.title);
+      return itemTitle && (itemTitle === wantedTitle || itemTitle.includes(wantedTitle) || wantedTitle.includes(itemTitle));
+    });
+    const yearMatches = year ? titleMatches.filter((item) => String(item.releaseDate || '').slice(0, 4) === year) : [];
+    const matchedCandidates = yearMatches.length ? yearMatches : titleMatches;
+    matchedCandidates.sort((a, b) => {
+      const aExact = normalizeTitle(a.title) === wantedTitle ? 1 : 0;
+      const bExact = normalizeTitle(b.title) === wantedTitle ? 1 : 0;
+      return bExact - aExact;
     });
 
-    for (const item of candidates) {
+    for (const item of matchedCandidates) {
       const params = new URLSearchParams({
         subjectId: String(item.subjectId),
         detailPath: String(item.detailPath),
