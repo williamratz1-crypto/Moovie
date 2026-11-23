@@ -1195,9 +1195,9 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
-    const provider = ['vidstuck', 'omnisave'].includes(requestedProvider)
-      ? requestedProvider
-      : playableMovie.playerProvider;
+    const savedProvider = watchlist.find((item) => getDocId(item) === getDocId(playableMovie))?.playerProvider;
+    const provider = [requestedProvider, playableMovie.playerProvider, savedProvider]
+      .find((value) => ['vidstuck', 'omnisave'].includes(value));
     if (!provider) {
       setProviderPromptMovie(playableMovie);
       return;
@@ -1900,7 +1900,7 @@ useEffect(() => {
                     autoPlay
                     playsInline
                     onTimeUpdate={handleOmniTimeUpdate}
-                    onError={() => setOmniError('This OmniSave stream could not be played. Try Vidstuck for this title.')}
+                    onError={() => { setOmniVideoUrl(''); setOmniError('This OmniSave stream could not be played. Try Vidstuck for this title.'); }}
                   />
                   : <div className="player-provider-message player-provider-error">{omniError || 'OmniSave could not load this title.'}</div>
             ) : (
