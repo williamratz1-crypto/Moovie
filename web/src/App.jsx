@@ -57,7 +57,7 @@ const SEARCH_COUNTRIES = [
   { code: 'TH', name: 'Thailand' }, { code: 'SE', name: 'Sweden' },
 ];
 
-function buildPlayerUrl(movie) {
+function buildPlayerUrl(movie, skipIntro = true) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
@@ -68,12 +68,7 @@ function buildPlayerUrl(movie) {
     ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
-  const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true' });
-  const resumeSeconds = Math.floor((Number(movie?.progressMinutes) || 0) * 60);
-  const runtimeSeconds = (Number(movie?.runtimeMinutes) || 0) * 60;
-  const isNearEnd = runtimeSeconds > 0 && resumeSeconds >= runtimeSeconds * 0.95;
-  if (resumeSeconds >= 30 && !isNearEnd) params.set('startAt', String(resumeSeconds));
-
+  const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true', skip_intro: String(skipIntro) });
   return `${path}?${params.toString()}`;
 }
 
@@ -315,6 +310,10 @@ export default function App() {
     try { return localStorage.getItem('moovie-player-aspect-v1') || '16 / 9'; }
     catch { return '16 / 9'; }
   });
+  const [skipIntroEnabled, setSkipIntroEnabled] = useState(() => {
+    try { return localStorage.getItem('moovie-player-skip-intro-v1') !== 'false'; }
+    catch { return true; }
+  });
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
@@ -348,6 +347,10 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('moovie-player-aspect-v1', playerAspectRatio); } catch {}
   }, [playerAspectRatio]);
+
+  useEffect(() => {
+    try { localStorage.setItem('moovie-player-skip-intro-v1', String(skipIntroEnabled)); } catch {}
+  }, [skipIntroEnabled]);
 
   // Keep the player inside the app's browser history. The first Back closes it.
   useEffect(() => {
@@ -1157,20 +1160,11 @@ useEffect(() => {
   async function openPlayer(movieToPlay = selected) {
     if (playerOpen || !movieToPlay) return;
 
-    const mediaType = movieToPlay.media_type || 'movie';
-    const savedItem = watchlist.find((item) =>
-      Number(item.id) === Number(movieToPlay.id) &&
-      (item.media_type || 'movie') === mediaType
-    );
     const playableMovie = {
       ...movieToPlay,
-      media_type: mediaType,
-      progressMinutes: Number(savedItem?.progressMinutes ?? movieToPlay.progressMinutes) || 0,
-      runtimeMinutes: Number(savedItem?.runtimeMinutes ?? movieToPlay.runtimeMinutes) || null,
-      season: savedItem?.season ?? movieToPlay.season ?? 1,
-      episode: savedItem?.episode ?? movieToPlay.episode ?? 1,
+      media_type: movieToPlay.media_type || 'movie',
     };
-    if (!buildPlayerUrl(playableMovie)) return;
+    if (!buildPlayerUrl(playableMovie, skipIntroEnabled)) return;
 
     setSelected(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
@@ -1755,9 +1749,9 @@ useEffect(() => {
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
-              key={buildPlayerUrl(selected)}
+              key={buildPlayerUrl(selected, skipIntroEnabled)}
               className="player-frame"
-              src={buildPlayerUrl(selected)}
+              src={buildPlayerUrl(selected, skipIntroEnabled)}
               title={`Moovie player: ${selected.title || selected.name}`}
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
@@ -1774,6 +1768,13 @@ useEffect(() => {
                 <option value="21 / 9">21:9</option>
                 <option value="1 / 1">1:1</option>
                 <option value="fill">FILL SCREEN</option>
+              </select>
+            </label>
+            <label className="player-aspect-control">
+              <span>SKIP INTRO</span>
+              <select aria-label="Auto skip intro" value={skipIntroEnabled ? 'on' : 'off'} onChange={(event) => setSkipIntroEnabled(event.target.value === 'on')}>
+                <option value="on">ON</option>
+                <option value="off">OFF</option>
               </select>
             </label>
             <span>ESC · CLOSE &nbsp;&nbsp; F · FULLSCREEN</span>
