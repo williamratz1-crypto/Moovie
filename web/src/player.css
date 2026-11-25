@@ -98,6 +98,29 @@
   color: #817b87;
   font-size: 9px;
 }
+.player-aspect-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #aaa4b0;
+  font-size: 9px;
+  letter-spacing: .8px;
+}
+.player-aspect-control select {
+  min-width: 66px;
+  padding: 6px 8px;
+  border: 1px solid #39323d;
+  border-radius: 7px;
+  background: #211e26;
+  color: #f2eff5;
+  font: inherit;
+  letter-spacing: .3px;
+  cursor: pointer;
+}
+.player-aspect-control select:focus-visible {
+  outline: 2px solid #f5c518;
+  outline-offset: 2px;
+}
 .player-footer span:first-child {
   color: #f5c518;
   font-weight: 700;
