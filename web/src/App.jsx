@@ -305,6 +305,10 @@ export default function App() {
   const [trailerLoading, setTrailerLoading] = useState(false);
   const [trailerMessage, setTrailerMessage] = useState('');
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [playerAspectRatio, setPlayerAspectRatio] = useState(() => {
+    try { return localStorage.getItem('moovie-player-aspect-v1') || '16 / 9'; }
+    catch { return '16 / 9'; }
+  });
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
@@ -333,6 +337,11 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Remember the user's preferred player aspect ratio.
+  useEffect(() => {
+    try { localStorage.setItem('moovie-player-aspect-v1', playerAspectRatio); } catch {}
+  }, [playerAspectRatio]);
 
   // Keep the player inside the app's browser history. The first Back closes it.
   useEffect(() => {
@@ -1729,7 +1738,7 @@ useEffect(() => {
             </div>
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
-          <div className="player-frame-wrap" ref={playerFrameWrapRef}>
+          <div className="player-frame-wrap" ref={playerFrameWrapRef} style={{ aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
               key={buildPlayerUrl(selected)}
@@ -1743,6 +1752,15 @@ useEffect(() => {
           </div>
           <div className="player-footer">
             <span>MOOVIE PLAYER</span>
+            <label className="player-aspect-control">
+              <span>ASPECT</span>
+              <select aria-label="Player aspect ratio" value={playerAspectRatio} onChange={(event) => setPlayerAspectRatio(event.target.value)}>
+                <option value="16 / 9">16:9</option>
+                <option value="4 / 3">4:3</option>
+                <option value="21 / 9">21:9</option>
+                <option value="1 / 1">1:1</option>
+              </select>
+            </label>
             <span>ESC · CLOSE &nbsp;&nbsp; F · FULLSCREEN</span>
           </div>
         </section>
