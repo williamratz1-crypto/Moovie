@@ -62,13 +62,19 @@ function buildPlayerUrl(movie) {
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
 
-  const season = Math.max(1, Number(movie?.season) || 1);
-  const episode = Math.max(1, Number(movie?.episode) || 1);
+  const season = Math.max(1, Math.floor(Number(movie?.season) || 1));
+  const episode = Math.max(1, Math.floor(Number(movie?.episode) || 1));
   const path = mediaType === 'tv'
     ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
-  return `${path}?branding=Moovie&loading=1&back=true`;
+  const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true' });
+  const resumeSeconds = Math.floor((Number(movie?.progressMinutes) || 0) * 60);
+  const runtimeSeconds = (Number(movie?.runtimeMinutes) || 0) * 60;
+  const isNearEnd = runtimeSeconds > 0 && resumeSeconds >= runtimeSeconds * 0.95;
+  if (resumeSeconds >= 30 && !isNearEnd) params.set('startAt', String(resumeSeconds));
+
+  return `${path}?${params.toString()}`;
 }
 
 async function tmdb(path) {
@@ -1151,9 +1157,18 @@ useEffect(() => {
   async function openPlayer(movieToPlay = selected) {
     if (playerOpen || !movieToPlay) return;
 
+    const mediaType = movieToPlay.media_type || 'movie';
+    const savedItem = watchlist.find((item) =>
+      Number(item.id) === Number(movieToPlay.id) &&
+      (item.media_type || 'movie') === mediaType
+    );
     const playableMovie = {
       ...movieToPlay,
-      media_type: movieToPlay.media_type || 'movie',
+      media_type: mediaType,
+      progressMinutes: Number(savedItem?.progressMinutes ?? movieToPlay.progressMinutes) || 0,
+      runtimeMinutes: Number(savedItem?.runtimeMinutes ?? movieToPlay.runtimeMinutes) || null,
+      season: savedItem?.season ?? movieToPlay.season ?? 1,
+      episode: savedItem?.episode ?? movieToPlay.episode ?? 1,
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
@@ -1167,7 +1182,6 @@ useEffect(() => {
     setPlayerOpen(true);
     void markAsWatching(playableMovie);
   }
-
   function closePlayer() {
     setPlayerOpen(false);
     if (playerHistoryRef.current) {
