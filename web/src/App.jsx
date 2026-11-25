@@ -1738,7 +1738,7 @@ useEffect(() => {
             </div>
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
-          <div className="player-frame-wrap" ref={playerFrameWrapRef} style={{ aspectRatio: playerAspectRatio }}>
+          <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
               key={buildPlayerUrl(selected)}
@@ -1759,6 +1759,7 @@ useEffect(() => {
                 <option value="4 / 3">4:3</option>
                 <option value="21 / 9">21:9</option>
                 <option value="1 / 1">1:1</option>
+                <option value="fill">FILL SCREEN</option>
               </select>
             </label>
             <span>ESC · CLOSE &nbsp;&nbsp; F · FULLSCREEN</span>
