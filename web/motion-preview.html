@@ -4,17 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Moovie — motion preview</title>
-    <!-- Dev-only playground: loads the real stylesheet so the animations can be
+    <!-- Dev-only playground: loads the real stylesheet so the motion can be
          reviewed without env vars or API access. Not part of the build. -->
     <link rel="stylesheet" href="/src/styles.css" />
     <style>
       .demo-toolbar {
         position: fixed; right: 18px; bottom: 18px; z-index: 50;
-        display: flex; gap: 8px; align-items: center;
+        display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
         padding: 10px 12px; border-radius: 12px;
-        background: #19171de6; border: 1px solid #332e38;
+        background: #19171df2; border: 1px solid #332e38;
         backdrop-filter: blur(8px);
-        animation: card-rise .5s var(--ease-out) both;
       }
       .demo-toolbar button {
         border: 1px solid #3a3540; background: #211e26; color: #eee8f1;
@@ -23,12 +22,15 @@
       }
       .demo-toolbar button:hover { transform: translateY(-1px) scale(1.03); border-color: var(--yellow); }
       .demo-toolbar span { font-size: 10px; color: #8f8995; letter-spacing: .08em; }
+      .demo-status { font-size: 10px; color: #f5c518; letter-spacing: .06em; }
       .demo-poster { width: 100%; height: 100%; display: block; }
       /* Mirrors the reduced-motion guard so the toggle can demonstrate it. */
       .force-reduced *, .force-reduced *::before, .force-reduced *::after {
         animation: none !important;
         transition: none !important;
       }
+      .force-reduced .reveal { opacity: 1 !important; transform: none !important; }
+      .force-reduced .reveal .movie-grid > * { opacity: 1 !important; transform: none !important; }
     </style>
   </head>
   <body>
@@ -120,7 +122,23 @@
               <div><span class="eyebrow">TRENDING NOW</span><h2>Trending Now</h2></div>
               <span class="result-count">12 TITLES</span>
             </div>
-            <div class="movie-grid" id="grid"></div>
+            <div class="movie-grid" data-grid="0"></div>
+          </section>
+
+          <section class="catalog-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">CRITIC FAVOURITES</span><h2>Top rated</h2></div>
+              <span class="result-count">12 TITLES</span>
+            </div>
+            <div class="movie-grid" data-grid="1"></div>
+          </section>
+
+          <section class="catalog-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">SERIES WORTH YOUR TIME</span><h2>Trending TV shows</h2></div>
+              <span class="result-count">12 TITLES</span>
+            </div>
+            <div class="movie-grid" data-grid="2"></div>
           </section>
 
           <div class="watchlist-status-tabs" role="group">
@@ -131,8 +149,8 @@
           </div>
 
           <div class="status-message" style="margin-top:18px">
-            <strong>Everything here is the real stylesheet.</strong>
-            <span>Hover a poster, press the hero button, switch tabs, or replay the entrance.</span>
+            <strong>This is the real stylesheet.</strong>
+            <span>Scroll slowly to watch each section reveal and its cards cascade. Hover a poster for the lift, zoom, shine and play badge.</span>
           </div>
 
           <footer class="footer-note">MOOVIE WEB <span>•</span> MOTION PREVIEW</footer>
@@ -142,9 +160,10 @@
 
     <div class="demo-toolbar">
       <span>MOTION PREVIEW</span>
+      <span class="demo-status" id="motion-status"></span>
       <button id="replay">Replay entrance</button>
       <button id="detail">Open detail panel</button>
-      <button id="reduced" title="Simulates prefers-reduced-motion">Reduced motion</button>
+      <button id="reduced">Reduced motion</button>
     </div>
 
     <script>
@@ -158,36 +177,61 @@
         'The Long Undertow', 'Glass Orchard', 'Hollow Season', 'Winter Frequency',
         'Lantern Road', 'The Second Coast', 'Ash & Amber', 'Signal Garden'];
 
-      function buildGrid() {
-        const grid = document.getElementById('grid');
-        grid.innerHTML = titles.map((title, i) => {
-          const [a, b] = palettes[i % palettes.length];
-          const type = i % 3 === 0 ? 'SERIES' : 'MOVIE';
-          return `<div class="poster-card-wrap">
-            <button class="poster-card" aria-label="View ${title}">
-              <div class="poster-wrap">
-                <div class="demo-poster" style="background:linear-gradient(160deg,${a},${b})"></div>
-                <span class="poster-rating">★ ${(6 + (i % 4)).toFixed(1)}</span>
-              </div>
-              <span class="poster-title">${title}</span>
-              <span class="poster-year">${type} · 202${i % 6}</span>
-            </button>
-          </div>`;
-        }).join('');
+      function buildGrids() {
+        document.querySelectorAll('.movie-grid[data-grid]').forEach((grid, offset) => {
+          grid.innerHTML = titles.map((title, i) => {
+            const [a, b] = palettes[(i + offset) % palettes.length];
+            const type = i % 3 === 0 ? 'SERIES' : 'MOVIE';
+            return `<div class="poster-card-wrap">
+              <button class="poster-card" aria-label="View ${title}">
+                <div class="poster-wrap">
+                  <div class="demo-poster" style="background:linear-gradient(160deg,${a},${b})"></div>
+                  <span class="poster-rating">★ ${(6 + (i % 4)).toFixed(1)}</span>
+                </div>
+                <span class="poster-title">${title}</span>
+                <span class="poster-year">${type} · 202${i % 6}</span>
+              </button>
+            </div>`;
+          }).join('');
+        });
       }
 
-      // Replacing the node re-runs every entrance animation in the page.
+      // Mirrors src/useReveal.js so this page demonstrates the real behaviour.
+      function installReveal() {
+        if (!('IntersectionObserver' in window)) return;
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.getElementById('motion-status').textContent = 'REDUCED MOTION IS ON — nothing animates';
+          return;
+        }
+        document.documentElement.classList.add('motion-ready');
+        const io = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('is-revealed');
+            io.unobserve(entry.target);
+          });
+        }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+
+        document.querySelectorAll([
+          '.catalog-section', '.continue-section', '.watchlist-status-tabs', '.footer-note',
+        ].join(',')).forEach((node) => {
+          node.classList.add('reveal');
+          io.observe(node);
+        });
+        document.getElementById('motion-status').textContent = 'MOTION ON';
+      }
+
       function replay() {
-        const page = document.getElementById('page');
-        const clone = page.cloneNode(true);
-        page.replaceWith(clone);
-        buildGrid();
-        document.getElementById('page')?.classList.remove('page-view');
-        void clone.offsetWidth;
-        clone.classList.add('page-view');
+        document.querySelectorAll('.reveal').forEach((n) => n.classList.remove('reveal', 'is-revealed'));
+        document.documentElement.classList.remove('motion-ready');
+        buildGrids();
+        void document.body.offsetWidth;
+        installReveal();
+        window.scrollTo({ top: 0, behavior: 'auto' });
       }
 
-      buildGrid();
+      buildGrids();
+      installReveal();
       document.getElementById('replay').addEventListener('click', replay);
 
       document.getElementById('detail').addEventListener('click', () => {

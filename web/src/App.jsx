@@ -19,6 +19,7 @@ import { auth, db, googleProvider } from './firebase';
 import { authErrorMessage } from './messages';
 import { RATINGS_KEY, clearLocalLibraryBackup, getDocId, readRatings } from './library';
 import { useWatchlist } from './useWatchlist';
+import { useReveal } from './useReveal';
 import './auth.css';
 import './player.css';
 
@@ -303,6 +304,7 @@ export default function App() {
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
   const detailPageRef = useRef(null);
+  const mainRef = useRef(null);
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
@@ -1262,6 +1264,10 @@ useEffect(() => {
       .sort((a, b) => timestamp(b.updatedAt || b.addedAt) - timestamp(a.updatedAt || a.addedAt));
   }, [watchlist]);
 
+  // Reveal sections as they scroll into view; re-runs when the page content
+  // is replaced (section change, search, loading -> results).
+  useReveal(mainRef, [section, query, loading]);
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
@@ -1286,7 +1292,7 @@ useEffect(() => {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main className="main-content" ref={mainRef}>
         <header className="topbar">
           <div className="mobile-brand"><Clapperboard size={20} /> moovie<span>.</span></div>
           <div className="search-box"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search movies, series..." /><kbd>⌘ K</kbd></div>
