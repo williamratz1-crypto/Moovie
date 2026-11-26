@@ -1259,3 +1259,120 @@ button:focus-visible {
     transition: none !important;
   }
 }
+
+
+/* Milestone 6 — poster loading and cinematic detail layout */
+.poster-wrap { position: relative; overflow: hidden; }
+.poster-wrap .poster-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.015);
+  transition: opacity .28s ease, transform .35s ease;
+}
+.poster-wrap .poster-image.is-loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+.poster-card:hover .poster-wrap .poster-image.is-loaded {
+  transform: scale(1.045);
+}
+
+.detail-page-hero > .detail-backdrop-image {
+  animation: moovie-detail-backdrop-reveal .65s ease both;
+}
+@keyframes moovie-detail-backdrop-reveal {
+  from { opacity: 0; transform: scale(1.025); }
+  to { opacity: 1; transform: scale(1); }
+}
+.detail-page-hero-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(22px, 4vw, 48px);
+  width: 100%;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.detail-page-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 1px solid #ffffff24;
+  border-radius: 12px;
+  background: #211e26;
+  box-shadow: 0 18px 45px #0008;
+}
+.detail-page-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: moovie-detail-backdrop-reveal .45s ease both;
+}
+.detail-page-poster-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #77717d;
+}
+.detail-page-hero-content .detail-page-heading { max-width: 850px; }
+.detail-page-heading .detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+}
+.detail-page-heading .detail-play-button,
+.detail-page-heading .detail-watch-button { width: auto; }
+
+.detail-overview-skeleton {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(180px, 1fr);
+  gap: 45px;
+}
+.detail-skeleton-story,
+.detail-skeleton-facts { display: grid; align-content: start; gap: 12px; }
+.detail-skeleton-story .eyebrow { margin-bottom: 2px; }
+.detail-skeleton-story i,
+.detail-skeleton-facts i {
+  position: relative;
+  display: block;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #211d27;
+}
+.detail-skeleton-story i.short { width: 62%; }
+.detail-skeleton-facts i { height: 31px; border-radius: 7px; }
+.detail-skeleton-story i::after,
+.detail-skeleton-facts i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, #ffffff0d, transparent);
+  animation: moovie-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+@media (max-width: 650px) {
+  .detail-page-hero-content { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 20px; }
+  .detail-page-poster { width: 116px; }
+  .detail-page-heading .detail-actions { display: grid; grid-template-columns: 1fr; max-width: 340px; }
+  .detail-page-heading .detail-play-button,
+  .detail-page-heading .detail-watch-button { width: 100%; }
+  .detail-overview-skeleton { grid-template-columns: 1fr; gap: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster-wrap .poster-image,
+  .detail-page-hero > .detail-backdrop-image,
+  .detail-page-poster img,
+  .detail-skeleton-story i::after,
+  .detail-skeleton-facts i::after { animation: none !important; transition: none !important; }
+  .poster-wrap .poster-image.is-loaded { opacity: 1; transform: none; }
+}
