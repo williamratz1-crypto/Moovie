@@ -1575,3 +1575,21 @@ button:focus-visible {
     transform: none !important;
   }
 }
+
+
+.search-load-more { display: flex; justify-content: center; padding: 22px 0 8px; }
+.search-load-more-button {
+  width: min(420px, 100%);
+  padding: 14px 16px;
+  border: 1px solid #39323d;
+  border-radius: 10px;
+  background: #211e26;
+  color: #f2eff5;
+  font: 600 12px 'Space Grotesk', sans-serif;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+.search-load-more-button:hover:not(:disabled) { border-color: #f5c518; color: #f5c518; background: #262230; }
+.search-load-more-button:disabled { opacity: .55; cursor: default; }

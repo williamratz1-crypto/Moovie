@@ -72,12 +72,13 @@ function buildPlayerUrl(movie) {
   return `${path}?${params.toString()}`;
 }
 
-async function tmdb(path) {
+async function tmdb(path, signal) {
   if (!token || token === 'your_tmdb_read_access_token_here') {
     throw new Error('Add your TMDB Read Access Token to web/.env to load the movie catalogue.');
   }
   const response = await fetch(`${API_ROOT}${path}`, {
     headers: { Authorization: `Bearer ${token}`, accept: 'application/json' },
+    signal,
   });
   if (!response.ok) throw new Error(`TMDB request failed (${response.status}). Check your API token.`);
   return response.json();
@@ -275,6 +276,9 @@ export default function App() {
   const [similarSource, setSimilarSource] = useState(null);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchTotalPages, setSearchTotalPages] = useState(1);
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [searchCountry, setSearchCountry] = useState('');
   const [searchYear, setSearchYear] = useState('');
   const [searchGenre, setSearchGenre] = useState('');
@@ -847,20 +851,67 @@ useEffect(() => {
 }, [movies, section, query]);
 
   const searchFiltersActive = Boolean(searchCountry || searchYear || searchGenre || searchMediaType !== 'all' || searchSort !== 'relevance');
+  async function fetchSearchPage(page, signal, filtersActive) {
+    if (filtersActive && (!query.trim() || searchCountry || searchYear || searchGenre)) {
+      const common = [
+        'include_adult=false',
+        'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'),
+        searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
+        searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
+      ].filter(Boolean).join('&');
+      const movieParams = [common, searchYear ? `primary_release_year=${searchYear}` : '', `page=${page}`].filter(Boolean).join('&');
+      const tvParams = [
+        'include_adult=false',
+        `sort_by=${searchSort === 'oldest' ? 'first_air_date.asc' : searchSort === 'newest' ? 'first_air_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'}`,
+        searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
+        searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
+        searchYear ? `first_air_date_year=${searchYear}` : '',
+        `page=${page}`,
+      ].filter(Boolean).join('&');
+      const [movieData, tvData] = await Promise.all([
+        tmdb(`/discover/movie?${movieParams}`, signal),
+        tmdb(`/discover/tv?${tvParams}`, signal),
+      ]);
+      let results = [
+        ...(movieData.results || []).map((item) => ({ ...item, media_type: 'movie' })),
+        ...(tvData.results || []).map((item) => ({ ...item, media_type: 'tv' })),
+      ];
+      if (query.trim()) {
+        const needle = query.trim().toLowerCase();
+        results = results.filter((item) => `${item.title || item.name || ''} ${item.overview || ''}`.toLowerCase().includes(needle));
+      }
+      return { results, totalPages: Math.min(Number(movieData.total_pages) || 1, Number(tvData.total_pages) || 1) };
+    }
+    const data = await tmdb(`/search/multi?query=${encodeURIComponent(query.trim())}&include_adult=false&page=${page}`, signal);
+    return {
+      results: (data.results || []).filter((item) => item.media_type !== 'person'),
+      totalPages: Math.min(Number(data.total_pages) || 1, 500),
+    };
+  }
 
   useEffect(() => {
     if (section !== 'Search') {
       if (!query.trim()) {
         setSearchResults([]);
+        setSearchPage(1);
+        setSearchTotalPages(1);
         return undefined;
       }
       let alive = true;
-      const timer = setTimeout(() => {
-        tmdb(`/search/multi?query=${encodeURIComponent(query.trim())}&include_adult=false`)
-          .then((data) => { if (alive) setSearchResults((data.results || []).filter((item) => item.media_type !== 'person')); })
-          .catch((err) => { if (alive) setError(err.message); });
+      const controller = new AbortController();
+      const timer = setTimeout(async () => {
+        try {
+          const { results, totalPages } = await fetchSearchPage(1, controller.signal, false);
+          if (alive) {
+            setSearchResults(results);
+            setSearchTotalPages(totalPages);
+            setSearchPage(1);
+          }
+        } catch (err) {
+          if (alive && err.name !== 'AbortError') setError(err.message);
+        }
       }, 350);
-      return () => { alive = false; clearTimeout(timer); };
+      return () => { alive = false; clearTimeout(timer); controller.abort(); };
     }
 
     if (!query.trim() && !searchFiltersActive) {
@@ -870,54 +921,47 @@ useEffect(() => {
       return undefined;
     }
 
+    const controller = new AbortController();
     let alive = true;
     setLoading(true);
     setError('');
     const timer = setTimeout(async () => {
       try {
-        let results = [];
-        if (searchFiltersActive && (!query.trim() || searchCountry || searchYear || searchGenre)) {
-          const common = [
-            'include_adult=false',
-            'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'),
-            searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
-            searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
-          ].filter(Boolean).join('&');
-          const movieParams = [common, searchYear ? `primary_release_year=${searchYear}` : ''].filter(Boolean).join('&');
-          const tvParams = [
-            'include_adult=false',
-            `sort_by=${searchSort === 'oldest' ? 'first_air_date.asc' : searchSort === 'newest' ? 'first_air_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'}`,
-            searchCountry ? `with_origin_country=${encodeURIComponent(searchCountry)}` : '',
-            searchGenre ? `with_genres=${encodeURIComponent(searchGenre)}` : '',
-            searchYear ? `first_air_date_year=${searchYear}` : '',
-          ].filter(Boolean).join('&');
-          const [movieData, tvData] = await Promise.all([
-            tmdb(`/discover/movie?${movieParams}`),
-            tmdb(`/discover/tv?${tvParams}`),
-          ]);
-          results = [
-            ...(movieData.results || []).map((item) => ({ ...item, media_type: 'movie' })),
-            ...(tvData.results || []).map((item) => ({ ...item, media_type: 'tv' })),
-          ];
-          if (query.trim()) {
-            const needle = query.trim().toLowerCase();
-            results = results.filter((item) => `${item.title || item.name || ''} ${item.overview || ''}`.toLowerCase().includes(needle));
-          }
-        } else {
-          const data = await tmdb(`/search/multi?query=${encodeURIComponent(query.trim())}&include_adult=false`);
-          results = (data.results || []).filter((item) => item.media_type !== 'person');
-        }
-
-        if (alive) setSearchResults(results);
+        const { results, totalPages } = await fetchSearchPage(1, controller.signal, searchFiltersActive);
+        if (!alive) return;
+        setSearchResults(results);
+        setSearchTotalPages(totalPages);
+        setSearchPage(1);
       } catch (err) {
-        if (alive) setError(err.message);
+        if (alive && err.name !== 'AbortError') setError(err.message);
       } finally {
         if (alive) setLoading(false);
       }
     }, query.trim() ? 350 : 80);
-
-    return () => { alive = false; clearTimeout(timer); };
+    return () => { alive = false; clearTimeout(timer); controller.abort(); };
   }, [section, query, searchCountry, searchYear, searchGenre, searchMediaType, searchSort]);
+  async function loadMoreSearchResults() {
+    if (searchLoadingMore) return;
+    const nextPage = searchPage + 1;
+    if (nextPage > searchTotalPages) return;
+    setSearchLoadingMore(true);
+    try {
+      const { results } = await fetchSearchPage(nextPage, undefined, section === 'Search' ? searchFiltersActive : false);
+      const seen = new Set(searchResults.map((item) => `${item.media_type || 'movie'}-${item.id}`));
+      const fresh = results.filter((item) => {
+        const key = `${item.media_type || 'movie'}-${item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setSearchResults((current) => [...current, ...fresh]);
+      setSearchPage(nextPage);
+    } catch (err) {
+      if (err.name !== 'AbortError') setError(err.message);
+    } finally {
+      setSearchLoadingMore(false);
+    }
+  }
 
   const visibleMovies = useMemo(() => {
     if (section === 'Search') {
@@ -1608,6 +1652,13 @@ useEffect(() => {
             {!loading && error && <div className="status-message error"><strong>Search unavailable</strong><span>{error}</span></div>}
             {!loading && !error && visibleMovies.length === 0 && <div className="status-message">No titles match those filters. Try changing a filter or broadening your search.</div>}
             {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails />)}</div>}
+            {!loading && visibleMovies.length > 0 && searchPage < searchTotalPages && (
+              <div className="search-load-more">
+                <button className="search-load-more-button" onClick={loadMoreSearchResults} disabled={searchLoadingMore}>
+                  {searchLoadingMore ? 'Loading…' : 'Load more results'}
+                </button>
+              </div>
+            )}
           </section> : <>
             <div className="search-recommendation-intro"><span className="eyebrow">PICKED AROUND YOUR TASTE</span><h2>Recommended for you</h2><p>Based on your watchlist and the titles you've explored.</p></div>
             <div className="movie-grid search-recommendation-grid">{[...likedRecommendations, ...topPicks, ...tvRecommendations].filter((item, index, all) => all.findIndex((other) => `${other.media_type || 'movie'}-${other.id}` === `${item.media_type || 'movie'}-${item.id}`) === index).slice(0, 18).map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} />)}</div>
@@ -1650,6 +1701,13 @@ useEffect(() => {
           {!authReady && <div className="status-message">Checking account…</div>}
           {!loading && !error && visibleMovies.length === 0 && <div className="status-message">{section === 'Watchlist' && !query ? 'Your collection is empty. Open a title and add it to Plan to Watch to save it here.' : section === 'Watched' && !query ? 'No completed titles yet. Mark a title as completed when you finish it.' : section === 'Similar' ? 'No similar titles were found for this selection.' : 'No titles found. Try another search.'}</div>}
           {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails={Boolean(query.trim())} />)}</div>}
+          {section !== 'Search' && query.trim() && !loading && visibleMovies.length > 0 && searchPage < searchTotalPages && (
+            <div className="search-load-more">
+              <button className="search-load-more-button" onClick={loadMoreSearchResults} disabled={searchLoadingMore}>
+                {searchLoadingMore ? 'Loading…' : 'Load more results'}
+              </button>
+            </div>
+          )}
         </section>
         {section === 'Discover' && !query && tvRecommendations.length > 0 && <section className="catalog-section recommendation-section">
           <div className="section-heading"><div><span className="eyebrow">SERIES WORTH YOUR TIME</span><h2>Trending TV shows</h2></div><span className="result-count">UPDATED WEEKLY</span></div>
