@@ -1376,3 +1376,37 @@ button:focus-visible {
   .detail-skeleton-facts i::after { animation: none !important; transition: none !important; }
   .poster-wrap .poster-image.is-loaded { opacity: 1; transform: none; }
 }
+
+
+/* Milestone 7 — Continue Watching clarity + profile collection bars */
+.continue-info { min-width: 0; }
+.continue-info strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.continue-progress-caption {
+  color: #8e8795;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .35px;
+}
+.continue-card:hover .continue-progress-caption { color: #d5c28a; }
+
+.profile-breakdown { gap: 14px; }
+.profile-breakdown-item { display: grid; gap: 7px; }
+.profile-breakdown-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.profile-breakdown-row span { color: #aaa3b0; font-size: 11px; }
+.profile-breakdown-row strong { color: #f2eff5; font-size: 11px; font-variant-numeric: tabular-nums; }
+.profile-breakdown-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #302b36;
+}
+.profile-breakdown-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #a48732, var(--yellow));
+  transition: width .35s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-breakdown-track i { transition: none; }
+}
