@@ -36,6 +36,7 @@ const MOOD_FILTERS = [
   { name: 'Family Night', icon: '🍿', genres: '10751,16' },
   { name: 'Chill', icon: '🌙', genres: '18,35' },
 ];
+const GENRE_NAMES = {28:'Action',12:'Adventure',16:'Animation',35:'Comedy',80:'Crime',99:'Documentary',18:'Drama',10751:'Family',14:'Fantasy',36:'History',27:'Horror',10402:'Music',9648:'Mystery',10749:'Romance',878:'Sci-Fi',53:'Thriller',10752:'War',37:'Western'};
 const BROWSE_GENRES = [
   { id: 28, name: 'Action' }, { id: 35, name: 'Comedy' },
   { id: 27, name: 'Horror' }, { id: 878, name: 'Sci-Fi' },
@@ -84,6 +85,7 @@ async function tmdb(path, signal) {
   return response.json();
 }
 
+function getFeaturedStatus(movie,today=new Date()) { const type=movie?.media_type==='tv'?'tv':'movie',raw=type==='tv'?movie?.first_air_date:movie?.release_date; if(!raw)return type==='tv'?'AIRING':'RELEASED'; const date=new Date(raw+'T00:00:00'); if(!Number.isFinite(date.getTime()))return type==='tv'?'AIRING':'RELEASED'; const days=Math.floor((new Date(today.getFullYear(),today.getMonth(),today.getDate())-date)/86400000); if(type==='tv')return Math.abs(days)<=7?'NEW EPISODES':'AIRING'; return days<0?'COMING SOON':days<=60?'NOW SHOWING':'RELEASED'; }
 function normalizeWatchStatus(status) {
   if (status === 'watched') return 'completed';
   if (status === 'want') return 'plan_to_watch';
@@ -197,31 +199,8 @@ function authErrorMessage(error) {
   return messages[code] || error?.message || 'Authentication failed. Please try again.';
 }
 
-function PosterCard({ movie, onSelect, showMoreDetails = false }) {
-  const title = movie.title || movie.name || 'Untitled';
-  const [posterLoaded, setPosterLoaded] = useState(false);
-  return (
-    <div className="poster-card-wrap">
-      <button className="poster-card" onClick={() => onSelect(movie)} aria-label={`View ${title}`}>
-        <div className="poster-wrap">
-          {movie.poster_path
-            ? <img className={`poster-image${posterLoaded ? ' is-loaded' : ''}`} src={IMAGE_ROOT + 'w342' + movie.poster_path} alt={title} loading="lazy" onLoad={() => setPosterLoaded(true)} onError={() => setPosterLoaded(true)} />
-            : <div className="poster-fallback"><Film size={30} /><span>NO POSTER</span></div>}
-          <span className="poster-rating"><Star size={12} fill="currentColor" /> {movie.vote_average ? movie.vote_average.toFixed(1) : '—'}</span>
-        </div>
-        <span className="poster-title">{title}</span>
-        <span className="poster-year">{(movie.release_date || movie.first_air_date || '').slice(0, 4) || 'Release date TBA'}</span>
-      </button>
-      {showMoreDetails && (
-        <button className="poster-more-details" onClick={() => onSelect(movie)}>
-          More Details
-        </button>
-      )}
-    </div>
-  );
-}
-
-
+function PosterCard({movie,onSelect,showMoreDetails=false}){const title=movie.title||movie.name||'Untitled',[loaded,setLoaded]=useState(false),type=movie.media_type==='tv'?'SERIES':'MOVIE',year=(movie.release_date||movie.first_air_date||'').slice(0,4)||'YEAR TBA';return <div className="poster-card-wrap"><button className="poster-card" onClick={()=>onSelect(movie)} aria-label={`View ${title}`}><div className="poster-wrap">{movie.poster_path?<img className={`poster-image${loaded?' is-loaded':''}`} src={IMAGE_ROOT+'w342'+movie.poster_path} alt={title} loading="lazy" onLoad={()=>setLoaded(true)} onError={()=>setLoaded(true)}/>:<div className="poster-fallback"><Film size={30}/><span>NO POSTER</span></div>}<span className="poster-rating"><Star size={12} fill="currentColor"/> {movie.vote_average?movie.vote_average.toFixed(1):'—'}</span></div><span className="poster-title">{title}</span><span className="poster-year">{type} · {year}</span></button>{showMoreDetails&&<button className="poster-more-details" onClick={()=>onSelect(movie)}>More Details</button>}</div>}
+function RankedList({title,eyebrow,movies,onSelect,type}){return <section className="ranked-column"><div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div><span className="result-count">TOP 5</span></div>{movies.slice(0,5).map((movie,index)=>{const name=movie.title||movie.name||'Untitled';return <button className="ranked-item" key={`${movie.media_type||type}-${movie.id}`} onClick={()=>onSelect(movie)} aria-label={`Rank ${index+1}: View ${name}`}><span className={`rank-badge rank-${index+1}`} aria-hidden="true">{index+1}</span><span className="ranked-thumb">{movie.poster_path?<img src={IMAGE_ROOT+'w92'+movie.poster_path} alt="" loading="lazy"/>:<Film size={17}/>}</span><span className="ranked-copy"><strong>{name}</strong><small><Star size={11} fill="currentColor"/> {movie.vote_average?movie.vote_average.toFixed(1):'—'} · {type}</small><small className="ranked-year">{(movie.release_date||movie.first_air_date||'').slice(0,4)||'—'}</small></span></button>})}{!movies.length&&<div className="status-message">Ranked titles are temporarily unavailable.</div>}</section>}
 function PosterSkeletons({ count = 12 }) {
   return <div className="movie-grid poster-skeleton-grid" aria-label="Loading titles" aria-busy="true">
     {Array.from({ length: count }, (_, index) => <div className="poster-skeleton-card" key={index}>
@@ -1518,88 +1497,8 @@ useEffect(() => {
     (item.media_type || 'movie') === featuredType &&
     item.status !== 'completed' && item.status !== 'dropped'
   );
-  const releaseDate = featured.release_date || featured.first_air_date || '';
-
-  return (
-    <section className="hero-banner" aria-label="Featured trending titles">
-      {featured.backdrop_path && (
-        <img
-          key={featured.backdrop_path}
-          className="hero-backdrop"
-          src={IMAGE_ROOT + 'w1280' + featured.backdrop_path}
-          alt=""
-        />
-      )}
-
-      <div className="hero-shade" />
-      <div className="hero-copy" key={`${featuredType}-${featured.id}`}>
-        <span className="hero-tag">FEATURED THIS WEEK</span>
-        <h2>{featuredTitle}</h2>
-        <div className="hero-meta">
-          {releaseDate && <span>{releaseDate.slice(0, 4)}</span>}
-          {releaseDate && <span className="hero-meta-dot">•</span>}
-          <span><Star size={13} fill="currentColor" /> {featured.vote_average ? featured.vote_average.toFixed(1) : 'Not rated'}</span>
-          <span className="hero-meta-type">{featuredType === 'tv' ? 'SERIES' : 'MOVIE'}</span>
-        </div>
-        <p>{featured.overview || 'Discover your next favourite story.'}</p>
-
-        <div className="hero-actions">
-          <button className="hero-button" onClick={() => openDetails({ ...featured, media_type: featuredType })}>
-            <Film size={14} /> View details
-          </button>
-
-          <button
-            className={`hero-secondary ${featuredSaved ? 'is-saved' : ''}`}
-            onClick={() => toggleWatchlist(featured)}
-          >
-            {featuredSaved ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-            {featuredSaved ? 'In Watchlist' : 'Add to Watchlist'}
-          </button>
-
-          <button
-            className="hero-secondary hero-explore"
-            onClick={() => {
-              setSimilarSource({ ...featured, media_type: featuredType });
-              setQuery('');
-              goToSection('Similar');
-            }}
-          >
-            Explore More Like This
-          </button>
-        </div>
-      </div>
-
-      {movies.length > 1 && (
-        <div className="hero-controls">
-          <button
-            className="hero-arrow"
-            aria-label="Previous featured title"
-            onClick={() => setHeroIndex((current) => (current - 1 + movies.length) % movies.length)}
-          >
-            ‹
-          </button>
-          <div className="hero-dots" aria-label="Choose featured title">
-            {movies.map((movie, index) => (
-              <button
-                key={`${movie.media_type || 'movie'}-${movie.id}`}
-                className={`hero-dot ${index === heroIndex ? 'active' : ''}`}
-                aria-label={`Show featured title ${index + 1}`}
-                aria-current={index === heroIndex ? 'true' : undefined}
-                onClick={() => setHeroIndex(index)}
-              />
-            ))}
-          </div>
-          <button
-            className="hero-arrow"
-            aria-label="Next featured title"
-            onClick={() => setHeroIndex((current) => (current + 1) % movies.length)}
-          >
-            ›
-          </button>
-        </div>
-      )}
-    </section>
-  );
+  const genreIds=Array.isArray(featured.genre_ids)?featured.genre_ids:[],playerUrl=buildPlayerUrl(featured);
+  return <section className="hero-banner" aria-label="Featured trending titles">{featured.backdrop_path&&<img key={featured.backdrop_path} className="hero-backdrop" src={IMAGE_ROOT+'w1280'+featured.backdrop_path} alt=""/>}<div className="hero-shade"/><div className="hero-copy" key={`${featuredType}-${featured.id}`}><span className="hero-tag">FEATURED THIS WEEK</span><h2>{featuredTitle}</h2><div className="hero-meta hero-meta-redesign"><span className="hero-rating"><Star size={13} fill="currentColor"/> {Number(featured.vote_average||0).toFixed(1)}</span><span className="hero-status"><i/> {getFeaturedStatus(featured)}</span><span className="hero-meta-type">{featuredType==='tv'?'SERIES':'MOVIE'}</span></div><div className="hero-genres">{genreIds.slice(0,3).map(id=>GENRE_NAMES[id]?<span className="genre-pill" key={id}>{GENRE_NAMES[id]}</span>:null)}</div><p>{featured.overview||'Discover your next favourite story.'}</p><div className="hero-actions">{playerUrl&&<button className="hero-button" onClick={()=>openPlayer(featured)}><Play size={15} fill="currentColor"/> Watch Now</button>}<button className={`hero-add-button ${featuredSaved?'is-saved':''}`} onClick={()=>toggleWatchlist(featured)} aria-label={featuredSaved?'Remove featured title from watchlist':'Add featured title to watchlist'}>{featuredSaved?'✓':'＋'}</button><button className="hero-secondary hero-explore" onClick={()=>{setSimilarSource({...featured,media_type:featuredType});setQuery('');goToSection('Similar');}}>Explore More Like This</button></div></div>{movies.length>1&&<div className="hero-controls"><button className="hero-arrow" aria-label="Previous featured title" onClick={()=>setHeroIndex(current=>(current-1+movies.length)%movies.length)}>‹</button><div className="hero-dots" aria-label="Choose featured title">{movies.map((movie,index)=><button key={`${movie.media_type||'movie'}-${movie.id}`} className={`hero-dot ${index===heroIndex?'active':''}`} aria-label={`Show featured title ${index+1}`} aria-current={index===heroIndex?'true':undefined} onClick={()=>setHeroIndex(index)}/>)}</div><button className="hero-arrow" aria-label="Next featured title" onClick={()=>setHeroIndex(current=>(current+1)%movies.length)}>›</button></div>}</section>;
 })()}
 
 
@@ -1615,41 +1514,14 @@ useEffect(() => {
               const percent = runtime > 0 ? Math.min(100, Math.max(0, (progress / runtime) * 100)) : 0;
               const title = item.title || item.name || 'Untitled';
               const remaining = runtime > 0 && progress > 0 ? Math.max(0, runtime - progress) : 0;
-              const progressLabel = item.media_type === 'tv'
-                ? 'S' + String(item.season || 1).padStart(2, '0') + ' · E' + String(item.episode || 1).padStart(2, '0')
-                : remaining > 0 ? remaining + ' MIN LEFT' : 'READY TO RESUME';
-              return <button className="continue-card" key={(item.media_type || 'movie') + '-' + item.id} onClick={() => openPlayer(item)} aria-label={'Resume ' + title} style={{ '--continue-backdrop': item.backdrop_path ? 'url(' + IMAGE_ROOT + 'w780' + item.backdrop_path + ')' : 'none' }}>
-                <div className="continue-poster">
-                  {item.poster_path
-                    ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
-                    : <div className="poster-fallback"><Film size={25} /></div>}
-                  <span className="continue-play"><Play size={17} fill="currentColor" /></span><span className="continue-remove" role="button" tabIndex={0} aria-label={'Remove '+title+' from Continue Watching'} onClick={(event)=>{event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}}}><X size={14}/></span>
-                </div>
-                <div className="continue-info">
-                  <strong>{title}</strong>
-                  <span>{progressLabel}</span>
-                  <div className="continue-progress"><i style={{ width: percent + '%' }} /></div>
-                  <small className="continue-progress-caption">{runtime > 0 ? Math.round(percent) + '% watched' : item.media_type === 'tv' ? 'Episode saved' : 'Progress saved'}</small>
-                </div>
-              </button>;
+              const progressLabel=item.media_type==='tv'?'S'+String(item.season||1).padStart(2,'0')+'E'+String(item.episode||1).padStart(2,'0'):remaining>0?remaining+' MIN LEFT':'READY TO RESUME';
+              return <button className="continue-card" key={(item.media_type||'movie')+'-'+item.id} onClick={()=>openPlayer(item)} aria-label={'Resume '+title}><div className="continue-poster" style={{'--continue-backdrop':item.backdrop_path?'url('+IMAGE_ROOT+'w780'+item.backdrop_path+')':'none'}}>{item.backdrop_path?<img src={IMAGE_ROOT+'w780'+item.backdrop_path} alt="" loading="lazy"/>:<div className="poster-fallback"><Film size={25}/></div>}<span className="continue-play"><Play size={17} fill="currentColor"/></span><span className="continue-remove" role="button" tabIndex={0} aria-label={'Remove '+title+' from Continue Watching'} onClick={event=>{event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}}}><X size={14}/></span><span className="continue-label">{progressLabel}</span><span className="continue-progress"><i style={{width:percent+'%'}}/></span></div><div className="continue-info"><strong>{title}</strong><span>{item.media_type==='tv'?'SERIES · '+progressLabel:'MOVIE · '+progressLabel}</span></div></button>;
             })}
           </div>
         </section>}
+        {section === 'Home' && !query && (recommendationSeed || likedRecommendations[0]) && (() => {const pick=recommendationSeed||likedRecommendations[0],pickTitle=pick.title||pick.name||'Featured pick',pickType=pick.media_type==='tv'?'SERIES':'MOVIE';return <section className="featured-pick-banner"><div className="featured-pick-poster">{pick.poster_path?<img src={IMAGE_ROOT+'w342'+pick.poster_path} alt={pickTitle+' poster'} loading="lazy"/>:<Film size={30}/>}</div><div className="featured-pick-art" style={{backgroundImage:pick.backdrop_path?'linear-gradient(90deg,#111014 0%,#111014dc 42%,#11101450 100%),url('+IMAGE_ROOT+'w780'+pick.backdrop_path+')':'linear-gradient(90deg,#111014,#1b171e)'}}/><div className="featured-pick-copy"><span className="featured-pick-chip">EDITOR'S PICK</span><h2>{pickTitle}</h2><div className="featured-pick-rating"><Star size={13} fill="currentColor"/> {Number(pick.vote_average||0).toFixed(1)} · {pickType}</div><div className="hero-genres">{(Array.isArray(pick.genre_ids)?pick.genre_ids:[]).slice(0,3).map(id=>GENRE_NAMES[id]?<span className="genre-pill" key={id}>{GENRE_NAMES[id]}</span>:null)}</div><p>{pick.overview||'A title selected around your taste.'}</p><div className="hero-actions">{buildPlayerUrl(pick)&&<button className="hero-button" onClick={()=>openPlayer(pick)}><Play size={14} fill="currentColor"/> Watch Now</button>}<button className="hero-secondary" onClick={()=>openDetails(pick)}>Details</button></div></div></section>;})()}
         {section === 'Home' && !query && <>
-          <PosterRow
-            eyebrow="TOP RATED SERIES"
-            title="Top TV Shows"
-            movies={topSeries}
-            onSelect={openDetails}
-            emptyMessage="Top-rated series are temporarily unavailable."
-          />
-          <PosterRow
-            eyebrow="TOP RATED FILMS"
-            title="Top Movies"
-            movies={topMovies}
-            onSelect={openDetails}
-            emptyMessage="Top-rated movies are temporarily unavailable."
-          />
+          <section className="ranked-columns"><RankedList title="Top Movies This Week" eyebrow="RANKED FILMS" movies={topMovies} onSelect={openDetails} type="MOVIE"/><RankedList title="Top Series This Week" eyebrow="RANKED SERIES" movies={topSeries} onSelect={openDetails} type="SERIES"/></section>
           <PosterRow
             eyebrow="CURATED FOR YOU"
             title="Top 10 Picks for You"
@@ -1739,7 +1611,7 @@ useEffect(() => {
           <div className="section-heading">
             <div>
               <span className="eyebrow">
-                {query ? 'MATCHING TITLES'
+                {section === 'Home' && !query ? 'TRENDING NOW' : query ? 'MATCHING TITLES'
                   : section === 'Discover' ? 'CRITIC FAVOURITES'
                     : section === 'Watchlist' ? 'YOUR COLLECTION'
                       : section === 'Watched' ? 'YOUR COMPLETED TITLES'
@@ -1747,7 +1619,7 @@ useEffect(() => {
                           : 'UPDATED WEEKLY'}
               </span>
               <h2>
-                {query ? `Results for “${query}”`
+                {section === 'Home' && !query ? 'Trending Now' : query ? `Results for “${query}”`
                   : section === 'Discover' ? 'Top rated'
                     : section === 'Watchlist' ? 'Watchlist'
                       : section === 'Watched' ? 'Completed'
@@ -1756,6 +1628,7 @@ useEffect(() => {
               </h2>
             </div>
             <div className="catalog-heading-actions">
+              {section === 'Home' && !query && <span className="hot-chip">HOT</span>}
               <span className="result-count">{visibleMovies.length} TITLES</span>
               {section === 'Similar' && (
                 <button className="back-home-button" onClick={() => goToSection('Home')}>
