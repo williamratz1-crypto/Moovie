@@ -57,7 +57,7 @@ const SEARCH_COUNTRIES = [
   { code: 'TH', name: 'Thailand' }, { code: 'SE', name: 'Sweden' },
 ];
 
-function buildPlayerUrl(movie, skipIntro = true) {
+function buildPlayerUrl(movie) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
@@ -68,7 +68,7 @@ function buildPlayerUrl(movie, skipIntro = true) {
     ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
-  const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true', skip_intro: String(skipIntro) });
+  const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true' });
   return `${path}?${params.toString()}`;
 }
 
@@ -180,12 +180,13 @@ function authErrorMessage(error) {
 
 function PosterCard({ movie, onSelect, showMoreDetails = false }) {
   const title = movie.title || movie.name || 'Untitled';
+  const [posterLoaded, setPosterLoaded] = useState(false);
   return (
     <div className="poster-card-wrap">
       <button className="poster-card" onClick={() => onSelect(movie)} aria-label={`View ${title}`}>
         <div className="poster-wrap">
           {movie.poster_path
-            ? <img src={IMAGE_ROOT + 'w342' + movie.poster_path} alt={title} loading="lazy" />
+            ? <img className={`poster-image${posterLoaded ? ' is-loaded' : ''}`} src={IMAGE_ROOT + 'w342' + movie.poster_path} alt={title} loading="lazy" onLoad={() => setPosterLoaded(true)} onError={() => setPosterLoaded(true)} />
             : <div className="poster-fallback"><Film size={30} /><span>NO POSTER</span></div>}
           <span className="poster-rating"><Star size={12} fill="currentColor" /> {movie.vote_average ? movie.vote_average.toFixed(1) : '—'}</span>
         </div>
@@ -310,10 +311,6 @@ export default function App() {
     try { return localStorage.getItem('moovie-player-aspect-v1') || '16 / 9'; }
     catch { return '16 / 9'; }
   });
-  const [skipIntroEnabled, setSkipIntroEnabled] = useState(() => {
-    try { return localStorage.getItem('moovie-player-skip-intro-v1') !== 'false'; }
-    catch { return true; }
-  });
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
@@ -347,10 +344,6 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('moovie-player-aspect-v1', playerAspectRatio); } catch {}
   }, [playerAspectRatio]);
-
-  useEffect(() => {
-    try { localStorage.setItem('moovie-player-skip-intro-v1', String(skipIntroEnabled)); } catch {}
-  }, [skipIntroEnabled]);
 
   // Keep the player inside the app's browser history. The first Back closes it.
   useEffect(() => {
@@ -1164,7 +1157,7 @@ useEffect(() => {
       ...movieToPlay,
       media_type: movieToPlay.media_type || 'movie',
     };
-    if (!buildPlayerUrl(playableMovie, skipIntroEnabled)) return;
+    if (!buildPlayerUrl(playableMovie)) return;
 
     setSelected(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
@@ -1612,8 +1605,12 @@ useEffect(() => {
           </div>
 
           <div className="detail-page-hero">
-            {selected.backdrop_path && <img src={IMAGE_ROOT + 'w1280' + selected.backdrop_path} alt="" />}
+            {selected.backdrop_path && <img className="detail-backdrop-image" src={IMAGE_ROOT + 'w1280' + selected.backdrop_path} alt="" />}
             <div className="detail-page-hero-shade" />
+            <div className="detail-page-hero-content">
+              <div className="detail-page-poster">
+                {selected.poster_path ? <img src={IMAGE_ROOT + 'w500' + selected.poster_path} alt={`${selected.title || selected.name} poster`} /> : <div className="detail-page-poster-fallback"><Film size={30} /></div>}
+              </div>
             <div className="detail-page-heading">
               <span className="eyebrow">{selected.media_type === 'tv' ? 'SERIES DETAILS' : 'MOVIE DETAILS'}</span>
               <h1>{selected.title || selected.name}</h1>
@@ -1640,6 +1637,7 @@ useEffect(() => {
                 </button>
               </div>
             </div>
+            </div>
           </div>
 
           <div className="detail-page-body">
@@ -1649,9 +1647,14 @@ useEffect(() => {
               <button className={detailTab === 'trailers' ? 'active' : ''} onClick={() => setDetailTab('trailers')}>Trailers</button>
             </nav>
 
-            {detailLoading && <p className="detail-loading">Loading title information…</p>}
+            {detailTab === 'overview' && detailLoading && (
+              <div className="detail-overview-skeleton" aria-label="Loading title information" aria-busy="true">
+                <div className="detail-skeleton-story"><span className="eyebrow">THE STORY</span><i /><i /><i /><i className="short" /></div>
+                <div className="detail-skeleton-facts"><i /><i /><i /></div>
+              </div>
+            )}
 
-            {detailTab === 'overview' && (
+            {detailTab === 'overview' && !detailLoading && (
               <div className="detail-overview-panel">
                 <div>
                   <span className="eyebrow">THE STORY</span>
@@ -1749,9 +1752,9 @@ useEffect(() => {
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
-              key={buildPlayerUrl(selected, skipIntroEnabled)}
+              key={buildPlayerUrl(selected)}
               className="player-frame"
-              src={buildPlayerUrl(selected, skipIntroEnabled)}
+              src={buildPlayerUrl(selected)}
               title={`Moovie player: ${selected.title || selected.name}`}
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
@@ -1768,13 +1771,6 @@ useEffect(() => {
                 <option value="21 / 9">21:9</option>
                 <option value="1 / 1">1:1</option>
                 <option value="fill">FILL SCREEN</option>
-              </select>
-            </label>
-            <label className="player-aspect-control">
-              <span>SKIP INTRO</span>
-              <select aria-label="Auto skip intro" value={skipIntroEnabled ? 'on' : 'off'} onChange={(event) => setSkipIntroEnabled(event.target.value === 'on')}>
-                <option value="on">ON</option>
-                <option value="off">OFF</option>
               </select>
             </label>
             <span>ESC · CLOSE &nbsp;&nbsp; F · FULLSCREEN</span>
