@@ -242,10 +242,10 @@ function PosterRow({ eyebrow, title, movies = [], onSelect, emptyMessage, onRefr
   );
 }
 
-function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRatedTitles, onOpenTitle, onSignOut, onDeleteAccount, onClearGuestData, onSignIn, authError, authBusy }) {
+function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRatedTitles, onOpenTitle, onSignOut, onDeleteAccount, onClearGuestData, onSignIn, authError, authBusy, profileAvatar, profileNameDraft, onProfileNameChange, onSaveProfileName, profileSaveBusy, onChooseAvatar }) {
  return <section className="profile-page">
   <div className="profile-page-heading"><span className="eyebrow">YOUR MOOVIE SPACE</span><h1>Your profile.</h1><p>Your viewing history, taste profile and collection at a glance.</p></div>
-  <div className="profile-identity-card"><div className="profile-large-avatar">{(accountName||'M').charAt(0).toUpperCase()}</div><div className="profile-identity-copy"><strong>{accountName}</strong><span>{authUser?.email||'Guest account · saved locally on this device'}</span><small>{authUser?'CLOUD-SYNCED ACCOUNT':'LOCAL GUEST PROFILE'}</small></div>{authUser&&<span className="profile-sync-indicator">SYNCED</span>}</div>
+  <div className="profile-identity-card"><div className="profile-large-avatar">{profileAvatar || (accountName||'M').charAt(0).toUpperCase()}</div><div className="profile-identity-copy"><strong>{accountName}</strong><span>{authUser?.email||'Guest account · saved locally on this device'}</span><small>{authUser?'CLOUD-SYNCED ACCOUNT':'LOCAL GUEST PROFILE'}</small></div><div className="profile-avatar-picker" aria-label="Choose profile avatar">{['🎬','🍿','🎥','🌟','🦋','🐈','👾','🖤'].map((avatar)=><button type="button" key={avatar} className={profileAvatar===avatar?'active':''} onClick={()=>onChooseAvatar(avatar)} aria-label={'Choose '+avatar}>{avatar}</button>)}</div>{authUser&&<span className="profile-sync-indicator">SYNCED</span>}</div>
   <div className="profile-stat-grid">
    <article className="profile-stat-card"><Clock3/><span>TRACKED WATCH TIME</span><strong>{stats.watchHours} hrs</strong><small>Time tracked during playback</small></article>
    <article className="profile-stat-card"><Film/><span>MOVIES COMPLETED</span><strong>{stats.moviesCompleted}</strong><small>Marked as completed</small></article>
@@ -260,7 +260,7 @@ function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRa
   </div>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR LATEST ACTIVITY</span><h2>Recently watched</h2></div><span className="result-count">{recentlyWatched.length} TITLES</span></div>{recentlyWatched.length?<div className="movie-grid profile-movie-grid">{recentlyWatched.map(movie=><PosterCard key={getDocId(movie)} movie={movie} onSelect={onOpenTitle}/>)}</div>:<div className="status-message">Your recently watched titles will appear here as you play or complete something.</div>}</section>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR HIGHEST RATINGS</span><h2>Titles you loved</h2></div><span className="result-count">{stats.ratingCount} RATED</span></div>{topRatedTitles.length?<div className="movie-grid profile-movie-grid">{topRatedTitles.map(movie=><div className="profile-rated-item" key={getDocId(movie)}><PosterCard movie={movie} onSelect={onOpenTitle}/><span><Star size={12} fill="currentColor"/> {stats.ratings[getDocId(movie)]}/6</span></div>)}</div>:<div className="status-message">Rate titles out of six stars to build your favourites shelf.</div>}</section>
-  <section className="profile-account-panel"><div><span className="eyebrow">ACCOUNT & DATA</span><h2>Account settings</h2><p>{authUser?'Manage your Moovie account and stored viewing data.':'Guest data stays in this browser until you clear it or sign in.'}</p></div><div className="profile-account-actions">{authUser?<><button className="detail-watch-button" onClick={onSignOut}><LogOut size={15}/> Sign out</button><button className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account & data</button></>:<><button className="detail-play-button" onClick={onSignIn}><UserRound size={15}/> Sign in / Create account</button><button className="profile-delete-button" onClick={onClearGuestData}><Trash2 size={15}/> Clear guest data</button></>}</div>{authError&&<p className="auth-error profile-account-error">{authError}</p>}</section>
+  <section className="profile-account-panel"><div className="profile-settings-heading"><span className="eyebrow">ACCOUNT & DATA</span><h2>Account settings</h2><p>{authUser?'Manage your Moovie account and stored viewing data.':'Guest data stays in this browser until you clear it or sign in.'}</p><label className="profile-name-field"><span>DISPLAY NAME</span><input value={profileNameDraft} onChange={(event)=>onProfileNameChange(event.target.value)} maxLength={32} placeholder="Your name"/></label><button className="profile-save-name" onClick={onSaveProfileName} disabled={profileSaveBusy}>{profileSaveBusy?'Saving…':'Save display name'}</button></div><div className="profile-account-actions">{authUser?<><button className="detail-watch-button" onClick={onSignOut}><LogOut size={15}/> Sign out</button><button className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account & data</button></>:<><button className="detail-play-button" onClick={onSignIn}><UserRound size={15}/> Sign in / Create account</button><button className="profile-delete-button" onClick={onClearGuestData}><Trash2 size={15}/> Clear guest data</button></>}</div>{authError&&<p className="auth-error profile-account-error">{authError}</p>}</section>
  </section>;
 }
 
@@ -321,6 +321,10 @@ export default function App() {
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
 
+  const [profileAvatar, setProfileAvatar] = useState(() => { try { return localStorage.getItem('moovie-profile-avatar-v1') || '🎬'; } catch { return '🎬'; } });
+  const [guestDisplayName, setGuestDisplayName] = useState(() => { try { return localStorage.getItem('moovie-profile-name-v1') || ''; } catch { return ''; } });
+  const [profileNameDraft, setProfileNameDraft] = useState('');
+  const [profileSaveBusy, setProfileSaveBusy] = useState(false);
   const [authUser, setAuthUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -1022,6 +1026,33 @@ useEffect(() => {
     });
   }
 
+  async function removeFromContinueWatching(movie) {
+    if (!movie) return;
+    const key = getDocId(movie);
+    if (authUser) {
+      try { await deleteDoc(doc(db, 'users', authUser.uid, 'watchlist', key)); setCloudError(''); }
+      catch (writeError) { setCloudError(`Could not remove this title: ${authErrorMessage(writeError)}`); }
+      return;
+    }
+    setWatchlist((current) => current.filter((item) => getDocId(item) !== key));
+  }
+
+  async function saveProfileName() {
+    const nextName = profileNameDraft.trim();
+    if (!nextName) { setAuthError('Enter a display name first.'); return; }
+    setProfileSaveBusy(true); setAuthError('');
+    try {
+      if (authUser) { await updateProfile(authUser, { displayName: nextName }); setAuthUser(auth.currentUser); }
+      else { localStorage.setItem('moovie-profile-name-v1', nextName); setGuestDisplayName(nextName); }
+    } catch (failure) { setAuthError(authErrorMessage(failure)); }
+    finally { setProfileSaveBusy(false); }
+  }
+
+  function chooseProfileAvatar(avatar) {
+    setProfileAvatar(avatar);
+    try { localStorage.setItem('moovie-profile-avatar-v1', avatar); } catch {}
+  }
+
   async function setWatchStatus(movie, status) {
     if (!movie) return;
     const mediaType = movie.media_type || 'movie';
@@ -1249,7 +1280,7 @@ useEffect(() => {
     }
   }
 
-  const accountName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Movie lover';
+  const accountName = authUser?.displayName || guestDisplayName || authUser?.email?.split('@')[0] || 'Movie lover';
   const accountInitial = accountName.charAt(0).toUpperCase() || 'M';
   const ratingEntries = Object.entries(ratings).filter(([, value]) => Number(value) >= 1 && Number(value) <= 6);
   const profileRatedTitles = watchlist.filter((item) => Number(ratings[getDocId(item)]) >= 1).sort((a,b) => Number(ratings[getDocId(b)]) - Number(ratings[getDocId(a)]));
@@ -1460,7 +1491,7 @@ useEffect(() => {
                   {item.poster_path
                     ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
                     : <div className="poster-fallback"><Film size={25} /></div>}
-                  <span className="continue-play"><Play size={17} fill="currentColor" /></span>
+                  <span className="continue-play"><Play size={17} fill="currentColor" /></span><span className="continue-remove" role="button" tabIndex={0} aria-label={'Remove '+title+' from Continue Watching'} onClick={(event)=>{event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();removeFromContinueWatching(item);}}}><X size={14}/></span>
                 </div>
                 <div className="continue-info">
                   <strong>{title}</strong>
@@ -1534,7 +1565,7 @@ useEffect(() => {
           </div>
         </section>}
 
-        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onSignIn={()=>{setAuthMode('login');setAuthError('');setAuthOpen(true);}} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
+        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} profileAvatar={profileAvatar} profileNameDraft={profileNameDraft} onProfileNameChange={setProfileNameDraft} onSaveProfileName={saveProfileName} profileSaveBusy={profileSaveBusy} onChooseAvatar={chooseProfileAvatar} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onSignIn={()=>{setAuthMode('login');setAuthError('');setAuthOpen(true);}} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
           <div className="search-discovery-heading">
             <span className="eyebrow">YOUR NEXT WATCH STARTS HERE</span>
             <h1>What's on your mind?</h1>
