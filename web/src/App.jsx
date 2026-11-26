@@ -129,6 +129,7 @@ function toFirestoreItem(movie) {
     totalWatchedMinutes: Number(movie.totalWatchedMinutes) || 0,
     season: movie.season ?? null,
     episode: movie.episode ?? null,
+    hideFromContinueWatching: movie.hideFromContinueWatching === true,
     addedAt: movie.addedAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -154,6 +155,7 @@ function fromFirestoreItem(id, data) {
     totalWatchedMinutes: Number(data.totalWatchedMinutes) || 0,
     season: data.season ?? null,
     episode: data.episode ?? null,
+    hideFromContinueWatching: data.hideFromContinueWatching === true,
     addedAt: data.addedAt || null,
     updatedAt: data.updatedAt || null,
     firestoreId: id,
@@ -1029,12 +1031,13 @@ useEffect(() => {
   async function removeFromContinueWatching(movie) {
     if (!movie) return;
     const key = getDocId(movie);
+    const hiddenItem = { ...movie, hideFromContinueWatching: true, updatedAt: Date.now() };
     if (authUser) {
-      try { await deleteDoc(doc(db, 'users', authUser.uid, 'watchlist', key)); setCloudError(''); }
-      catch (writeError) { setCloudError(`Could not remove this title: ${authErrorMessage(writeError)}`); }
+      try { await setDoc(doc(db, 'users', authUser.uid, 'watchlist', key), toFirestoreItem(hiddenItem), { merge: true }); setCloudError(''); }
+      catch (writeError) { setCloudError(`Could not hide this title: ${authErrorMessage(writeError)}`); }
       return;
     }
-    setWatchlist((current) => current.filter((item) => getDocId(item) !== key));
+    setWatchlist((current) => current.map((item) => getDocId(item) === key ? hiddenItem : item));
   }
 
   async function saveProfileName() {
@@ -1343,7 +1346,7 @@ useEffect(() => {
       return Number.isFinite(numeric) ? numeric : 0;
     };
     return watchlist
-      .filter((item) => item.status !== 'completed' && item.status !== 'dropped' &&
+      .filter((item) => !item.hideFromContinueWatching && item.status !== 'completed' && item.status !== 'dropped' &&
         (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0))
       .sort((a, b) => timestamp(b.updatedAt || b.addedAt) - timestamp(a.updatedAt || a.addedAt));
   }, [watchlist]);
