@@ -224,6 +224,8 @@
 }
 
 @media (max-width: 600px) {
+  .player-header { flex-wrap: wrap; }
+  .player-episode-selects { order: 3; width: 100%; justify-content: flex-start; padding-top: 4px; }
   .player-backdrop { padding: 0; }
   .player-window {
     width: 100%;
@@ -236,3 +238,7 @@
   .player-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .continue-grid { grid-template-columns: 1fr; }
 }
+
+
+.player-episode-selects { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.player-episode-selects select:disabled { opacity: .55; cursor: default; }

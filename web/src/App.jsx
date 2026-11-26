@@ -315,6 +315,9 @@ export default function App() {
     try { return localStorage.getItem('moovie-player-aspect-v1') || '16 / 9'; }
     catch { return '16 / 9'; }
   });
+  const [playerSeason, setPlayerSeason] = useState(1);
+  const [playerEpisode, setPlayerEpisode] = useState(1);
+  const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
   const playerHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
@@ -1196,6 +1199,17 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
+    setPlayerSeason(Math.max(1, Math.floor(Number(playableMovie.season) || 1)));
+    setPlayerEpisode(Math.max(1, Math.floor(Number(playableMovie.episode) || 1)));
+    if (playableMovie.media_type === 'tv') {
+      setPlayerSeasons([]);
+      tmdb(`/tv/${Number(playableMovie.id)}`)
+        .then((data) => setPlayerSeasons((data.seasons || []).filter((s) => Number(s.season_number) > 0 && Number(s.episode_count) > 0)))
+        .catch(() => setPlayerSeasons([]));
+    } else {
+      setPlayerSeasons([]);
+    }
+
     setSelected(playableMovie);
     lastProgressSaveRef.current = { key: '', bucket: -1 };
     watchTimeSampleRef.current = { key: getDocId(playableMovie), currentTime: 0, pendingSeconds: 0 };
@@ -1794,17 +1808,35 @@ useEffect(() => {
               <span className="player-brand-mark"><Clapperboard size={18} /></span>
               <div>
                 <strong>{selected.title || selected.name}</strong>
-                <span>{selected.media_type === 'tv' ? 'TV SERIES · SEASON 1 · EPISODE 1' : 'NOW PLAYING ON MOOVIE'}</span>
+                <span>{selected.media_type === 'tv' ? `TV SERIES · SEASON ${playerSeason} · EPISODE ${playerEpisode}` : 'NOW PLAYING ON MOOVIE'}</span>
               </div>
             </div>
+            {selected.media_type === 'tv' && (
+              <div className="player-episode-selects">
+                <label className="player-aspect-control"><span>SEASON</span>
+                  <select aria-label="Season" value={playerSeason}
+                    onChange={(e) => { setPlayerSeason(Number(e.target.value)); setPlayerEpisode(1); }}>
+                    {(playerSeasons.length ? playerSeasons : [{ season_number: playerSeason, episode_count: 0 }]).map((s) =>
+                      <option key={s.season_number} value={s.season_number}>{s.season_number}</option>)}
+                  </select>
+                </label>
+                <label className="player-aspect-control"><span>EPISODE</span>
+                  <select aria-label="Episode" value={playerEpisode} disabled={!playerSeasons.length}
+                    onChange={(e) => setPlayerEpisode(Number(e.target.value))}>
+                    {Array.from({ length: (playerSeasons.find((s) => Number(s.season_number) === Number(playerSeason))?.episode_count) || 1 },
+                      (_, i) => i + 1).map((ep) => <option key={ep} value={ep}>{ep}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
-              key={buildPlayerUrl(selected)}
+              key={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
               className="player-frame"
-              src={buildPlayerUrl(selected)}
+              src={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
               title={`Moovie player: ${selected.title || selected.name}`}
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
