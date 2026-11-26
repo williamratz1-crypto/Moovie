@@ -110,6 +110,22 @@ function getDocId(movie) {
   return `${movie.media_type || 'movie'}-${Number(movie.id)}`;
 }
 
+const ROUTE_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile', Similar: 'similar' };
+const SECTION_BY_ROUTE = Object.fromEntries(Object.entries(SECTION_ROUTES).map(([name, route]) => [route || '/', name]));
+function routeHref(route) { return `${ROUTE_BASE}/${route}`.replace(/\/+$/, '') || `${ROUTE_BASE}/`; }
+function parseTitleRoute(pathname) {
+  const base = `${ROUTE_BASE}/`;
+  const path = pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '');
+  const match = path.match(/^title\/(movie|tv)-(\d+)\/?$/);
+  return match ? { media_type: match[1], id: Number(match[2]) } : null;
+}
+function sectionFromPath(pathname) {
+  const base = `${ROUTE_BASE}/`;
+  const path = (pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '')).replace(/\/+$/, '') || '/';
+  return SECTION_BY_ROUTE[path] || 'Home';
+}
+
 function toFirestoreItem(movie) {
   const mediaType = movie.media_type || 'movie';
   const date = movie.release_date || movie.first_air_date || '';
@@ -323,6 +339,7 @@ export default function App() {
   const [playerEpisode, setPlayerEpisode] = useState(1);
   const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
   const playerHistoryRef = useRef(false);
+  const detailHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
   const playerFrameRef = useRef(null);
   const detailPageRef = useRef(null);
@@ -370,6 +387,38 @@ export default function App() {
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Keep app sections and title details in browser history.
+  useEffect(() => {
+    function handleAppPopState(event) {
+      if (playerHistoryRef.current) return; // player's own handler manages that entry
+      const state = event.state || {};
+      if (state.moovieTitle) {
+        if (selectedDetailRequestRef.current === state.moovieTitle) return; // already showing it
+        detailHistoryRef.current = true;
+        const route = parseTitleRoute(window.location.pathname);
+        if (route) openDetails({ id: route.id, media_type: route.media_type }, { pushRoute: false });
+        return;
+      }
+      detailHistoryRef.current = false;
+      setSelected(null);
+      setSection(state.moovieSection || 'Home');
+    }
+    window.addEventListener('popstate', handleAppPopState);
+    return () => window.removeEventListener('popstate', handleAppPopState);
+  }, []);
+
+  // Restore the section or title represented by the URL on initial load.
+  useEffect(() => {
+    const titleRoute = parseTitleRoute(window.location.pathname);
+    if (titleRoute) {
+      openDetails({ id: titleRoute.id, media_type: titleRoute.media_type }, { pushRoute: false });
+      return;
+    }
+    const bootSection = sectionFromPath(window.location.pathname);
+    if (bootSection !== 'Home') setSection(bootSection);
+    window.history.replaceState({ moovieSection: bootSection }, '', window.location.href);
   }, []);
 
   // Always start a fresh page load at the top instead of restoring old scroll.
@@ -1126,11 +1175,20 @@ useEffect(() => {
     await setWatchStatus(movie, existing?.status === 'completed' ? 'plan_to_watch' : 'completed');
   }
 
-  async function openDetails(movie) {
+  function goToSection(next) {
+    setSection(next);
+    window.history.pushState({ moovieSection: next }, '', routeHref(SECTION_ROUTES[next] ?? ''));
+  }
+
+  async function openDetails(movie, options = {}) {
     const mediaType = movie.media_type === 'tv' ? 'tv' : 'movie';
     const id = Number(movie.id);
     const requestKey = `${mediaType}-${id}`;
     selectedDetailRequestRef.current = requestKey;
+    if (options.pushRoute !== false) {
+      window.history.pushState({ moovieTitle: requestKey }, '', routeHref(`title/${requestKey}`));
+      detailHistoryRef.current = true;
+    }
 
     setSelected({ ...movie, media_type: mediaType });
     setPlayerOpen(false);
@@ -1272,6 +1330,17 @@ useEffect(() => {
     }
   }
 
+  function closeDetails() {
+    if (detailHistoryRef.current) {
+      detailHistoryRef.current = false;
+      window.history.back(); // popstate handler clears `selected`
+    } else {
+      setSelected(null);
+      // Direct-load case: fix the URL so a later refresh doesn't reopen the overlay
+      window.history.replaceState({ moovieSection: section }, '', routeHref(SECTION_ROUTES[section] ?? ''));
+    }
+  }
+
   async function findTrailer() {
     if (!selected) return;
     setTrailerLoading(true);
@@ -1388,7 +1457,7 @@ useEffect(() => {
       await Promise.all(reviews.docs.map((entry)=>deleteDoc(entry.ref)));
       await deleteDoc(doc(db,'profiles',authUser.uid));
       localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);
-      await deleteUser(authUser);setWatchlist([]);setRatings({});setSection('Home');
+      await deleteUser(authUser);setWatchlist([]);setRatings({});goToSection('Home');
     }catch(failure){setAuthError(failure?.message==='Account deletion cancelled. Your data was not changed.'?failure.message:failure?.code==='auth/wrong-password'?'Password was incorrect. No data was deleted.':authErrorMessage(failure));}
     finally{setAuthBusy(false);}
   }
@@ -1413,20 +1482,20 @@ useEffect(() => {
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
-        <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setSection('Home'); setQuery(''); }}>
+        <a className="brand" href="#" onClick={(e) => { e.preventDefault(); goToSection('Home'); setQuery(''); }}>
           <span className="brand-mark"><Clapperboard size={21} /></span><span>moovie<span className="brand-dot">.</span></span>
         </a>
         <div className="sidebar-menu-row"><div className="side-label">MENU</div><button className="sidebar-toggle" onClick={()=>setSidebarCollapsed((value)=>!value)} aria-label={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'} title={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}>{sidebarCollapsed?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}</button></div>
         <nav className="side-nav">
-          <button className={section === 'Home' ? 'active' : ''} onClick={() => { setSection('Home'); setQuery(''); }}><Film /> Home</button>
-          <button className={section === 'Discover' ? 'active' : ''} onClick={() => { setSection('Discover'); setQuery(''); }}><Compass /> Discover</button>
-          <button className={section === 'Search' ? 'active' : ''} onClick={() => { setSection('Search'); setQuery(''); setError(''); }}><Search /> Search</button>
-          <button className={section === 'Profile' ? 'active' : ''} onClick={() => { setSection('Profile'); setQuery(''); setError(''); }}><UserRound /> Profile</button>
-          <button className={section === 'Watchlist' ? 'active' : ''} onClick={() => { setSection('Watchlist'); setQuery(''); setError(''); }}><Bookmark /> Watchlist <span className="watchlist-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped').length}</span></button>
-          <button className={section === 'Watched' ? 'active' : ''} onClick={() => { setSection('Watched'); setQuery(''); setError(''); }}><CheckCircle2 /> Completed <span className="watchlist-count">{watchlist.filter((item) => item.status === 'completed').length}</span></button>
+          <button className={section === 'Home' ? 'active' : ''} onClick={() => { goToSection('Home'); setQuery(''); }}><Film /> Home</button>
+          <button className={section === 'Discover' ? 'active' : ''} onClick={() => { goToSection('Discover'); setQuery(''); }}><Compass /> Discover</button>
+          <button className={section === 'Search' ? 'active' : ''} onClick={() => { goToSection('Search'); setQuery(''); setError(''); }}><Search /> Search</button>
+          <button className={section === 'Profile' ? 'active' : ''} onClick={() => { goToSection('Profile'); setQuery(''); setError(''); }}><UserRound /> Profile</button>
+          <button className={section === 'Watchlist' ? 'active' : ''} onClick={() => { goToSection('Watchlist'); setQuery(''); setError(''); }}><Bookmark /> Watchlist <span className="watchlist-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped').length}</span></button>
+          <button className={section === 'Watched' ? 'active' : ''} onClick={() => { goToSection('Watched'); setQuery(''); setError(''); }}><CheckCircle2 /> Completed <span className="watchlist-count">{watchlist.filter((item) => item.status === 'completed').length}</span></button>
         </nav>
         <div className="sidebar-bottom">
-          <button className="profile-chip profile-chip-button" onClick={() => { setSection('Profile'); setQuery(''); }}>
+          <button className="profile-chip profile-chip-button" onClick={() => { goToSection('Profile'); setQuery(''); }}>
             <div className="avatar">{authUser ? accountInitial : 'M'}</div>
             <div><strong>{authUser ? accountName : 'Movie lover'}</strong><span>{authUser ? 'Signed in' : 'Guest account'}</span></div>
           </button>
@@ -1437,7 +1506,7 @@ useEffect(() => {
         <header className="topbar">
           <div className="mobile-brand"><Clapperboard size={20} /> moovie<span>.</span></div>
           <div className="search-box"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search movies, series..." /><kbd>⌘ K</kbd></div>
-          <button className="profile-button" aria-label="Open profile" onClick={() => { setSection('Profile'); setQuery(''); }}><UserRound size={19} /></button>
+          <button className="profile-button" aria-label="Open profile" onClick={() => { goToSection('Profile'); setQuery(''); }}><UserRound size={19} /></button>
         </header>
 
 {!query && section === 'Home' && movies[heroIndex] && (() => {
@@ -1492,7 +1561,7 @@ useEffect(() => {
             onClick={() => {
               setSimilarSource({ ...featured, media_type: featuredType });
               setQuery('');
-              setSection('Similar');
+              goToSection('Similar');
             }}
           >
             Explore More Like This
@@ -1689,7 +1758,7 @@ useEffect(() => {
             <div className="catalog-heading-actions">
               <span className="result-count">{visibleMovies.length} TITLES</span>
               {section === 'Similar' && (
-                <button className="back-home-button" onClick={() => setSection('Home')}>
+                <button className="back-home-button" onClick={() => goToSection('Home')}>
                   Back to Home
                 </button>
               )}
@@ -1720,10 +1789,10 @@ useEffect(() => {
       {selected && <div className="detail-page-backdrop">
         <section ref={detailPageRef} className="detail-page" aria-label={`${selected.title || selected.name} details`}>
           <div className="detail-page-top">
-            <button className="detail-back-button" onClick={() => setSelected(null)}>
+            <button className="detail-back-button" onClick={closeDetails}>
               <span aria-hidden="true">←</span> Back to browsing
             </button>
-            <button className="detail-page-close" onClick={() => setSelected(null)} aria-label="Close details"><X size={19} /></button>
+            <button className="detail-page-close" onClick={closeDetails} aria-label="Close details"><X size={19} /></button>
           </div>
 
           <div className="detail-page-hero">
