@@ -1666,3 +1666,327 @@ button:focus-visible {
 @media(max-width:1050px){.settings-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:850px){.settings-page{padding:22px 18px 42px}.settings-layout{grid-template-columns:minmax(0,1fr);gap:14px}.settings-nav-card{position:static;flex-direction:row;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}.settings-nav-card button{flex:0 0 auto;padding:11px 15px}.settings-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.settings-page{padding:18px 13px 34px}.settings-panel{padding:18px}.settings-theme-grid{grid-template-columns:1fr}.settings-theme-card{padding:12px}.settings-live-preview{padding:17px}.settings-preview-actions{align-items:flex-start;flex-direction:column}.settings-theme-heading{gap:10px}.settings-account-actions{flex-direction:column;align-items:stretch}.settings-account-actions button{justify-content:center}}
+
+/* ==========================================================================
+   Motion layer
+   Additive only: no layout geometry changes, and every rule here is disabled
+   by the reduced-motion guard at the end of this block.
+   ========================================================================== */
+
+:root {
+  --motion-fast: .14s;
+  --motion-base: .26s;
+  --motion-slow: .5s;
+  --ease-out: cubic-bezier(.22, .61, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --stagger: 30ms;
+  --accent-glow: color-mix(in srgb, var(--accent, var(--yellow)) 30%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent, var(--yellow)) 12%, transparent);
+}
+
+/* --- Section changes: the page body slides and fades in ------------------- */
+/* Matches the specificity of the earlier `.main-content > :not(.topbar)` rule
+   so this richer version wins instead of being shadowed by it. */
+.main-content > .page-view { animation: page-enter var(--motion-slow) var(--ease-out) both; }
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Poster grids: staggered rise, lift + glow on hover ------------------- */
+.movie-grid:not(.poster-skeleton-grid) > * {
+  animation: card-rise .52s var(--ease-out) both;
+}
+
+@keyframes card-rise {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+.movie-grid > :nth-child(1)  { animation-delay: calc(var(--stagger) * 0); }
+.movie-grid > :nth-child(2)  { animation-delay: calc(var(--stagger) * 1); }
+.movie-grid > :nth-child(3)  { animation-delay: calc(var(--stagger) * 2); }
+.movie-grid > :nth-child(4)  { animation-delay: calc(var(--stagger) * 3); }
+.movie-grid > :nth-child(5)  { animation-delay: calc(var(--stagger) * 4); }
+.movie-grid > :nth-child(6)  { animation-delay: calc(var(--stagger) * 5); }
+.movie-grid > :nth-child(7)  { animation-delay: calc(var(--stagger) * 6); }
+.movie-grid > :nth-child(8)  { animation-delay: calc(var(--stagger) * 7); }
+.movie-grid > :nth-child(9)  { animation-delay: calc(var(--stagger) * 8); }
+.movie-grid > :nth-child(10) { animation-delay: calc(var(--stagger) * 9); }
+.movie-grid > :nth-child(11) { animation-delay: calc(var(--stagger) * 10); }
+.movie-grid > :nth-child(12) { animation-delay: calc(var(--stagger) * 11); }
+.movie-grid > :nth-child(n+13) { animation-delay: calc(var(--stagger) * 12); }
+
+.poster-wrap {
+  transition: transform .34s var(--ease-out), box-shadow .34s var(--ease-out),
+              border-color .34s var(--ease-out);
+}
+
+.poster-card:hover .poster-wrap,
+.poster-card:focus-visible .poster-wrap {
+  transform: translateY(-7px) scale(1.015);
+  box-shadow: 0 18px 40px #000000b3, 0 0 0 1px var(--accent-glow), 0 0 34px -6px var(--accent-glow);
+}
+
+.poster-card:hover .poster-wrap .poster-image.is-loaded {
+  transform: scale(1.06);
+}
+
+.poster-rating {
+  transition: transform var(--motion-base) var(--ease-spring), background var(--motion-fast);
+}
+
+.poster-card:hover .poster-rating { transform: translateY(-2px) scale(1.05); }
+
+/* The "More Details" affordance only fades in where hovering is real. */
+@media (hover: hover) and (pointer: fine) {
+  .poster-more-details {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity var(--motion-base) var(--ease-out), transform var(--motion-base) var(--ease-out);
+  }
+  .poster-card-wrap:hover .poster-more-details,
+  .poster-card-wrap:focus-within .poster-more-details {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Hero: slow drift on the backdrop, staggered copy, glowing dots -------- */
+.hero-banner .hero-backdrop {
+  animation: hero-kenburns 9s var(--ease-out) both;
+}
+
+@keyframes hero-kenburns {
+  0%   { opacity: 0;    transform: scale(1.08); }
+  18%  { opacity: .78;  transform: scale(1.05); }
+  100% { opacity: .78;  transform: scale(1); }
+}
+
+.hero-copy > * { animation: hero-line .62s var(--ease-out) both; }
+.hero-copy > :nth-child(1) { animation-delay: .04s; }
+.hero-copy > :nth-child(2) { animation-delay: .10s; }
+.hero-copy > :nth-child(3) { animation-delay: .16s; }
+.hero-copy > :nth-child(4) { animation-delay: .22s; }
+.hero-copy > :nth-child(5) { animation-delay: .28s; }
+.hero-copy > :nth-child(6) { animation-delay: .34s; }
+.hero-copy > :nth-child(n+7) { animation-delay: .38s; }
+
+@keyframes hero-line {
+  from { opacity: 0; transform: translateY(12px); filter: blur(3px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+
+.hero-dot.active { animation: dot-glow 2.6s ease-out infinite; }
+
+@keyframes dot-glow {
+  0%   { box-shadow: 0 0 0 0 var(--accent-glow); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.hero-arrow { transition: transform var(--motion-base) var(--ease-spring), border-color var(--motion-fast), color var(--motion-fast); }
+.hero-arrow:hover { transform: scale(1.12); }
+.hero-arrow:active { transform: scale(.94); }
+
+.hero-add-button {
+  transition: transform var(--motion-base) var(--ease-spring), background var(--motion-fast), border-color var(--motion-fast);
+}
+.hero-add-button:hover { transform: scale(1.08); }
+.hero-add-button:active { transform: scale(.9); }
+.hero-add-button.is-saved { animation: save-pop .5s var(--ease-spring); }
+
+@keyframes save-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.26); }
+  100% { transform: scale(1); }
+}
+
+/* --- Primary buttons: lift, glow and a light sweep on hover ---------------- */
+.hero-button,
+.detail-play-button,
+.settings-preview-watch {
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-base) var(--ease-out),
+              filter var(--motion-fast);
+}
+
+.hero-button:hover,
+.detail-play-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -6px var(--accent-glow);
+}
+
+.hero-button:active,
+.detail-play-button:active,
+.detail-watch-button:active,
+.hero-secondary:active {
+  transform: translateY(1px) scale(.985);
+}
+
+.hero-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 32%, #ffffff7a 50%, transparent 68%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+
+.hero-button:hover::after { animation: sheen .85s var(--ease-out); }
+
+@keyframes sheen {
+  to { transform: translateX(130%); }
+}
+
+.hero-secondary { transition: transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast), color var(--motion-fast); }
+
+/* --- Sidebar: sliding active bar, icon nudge, animated collapse ----------- */
+.sidebar {
+  transition: width .34s var(--ease-out), padding .34s var(--ease-out);
+}
+.main-content {
+  transition: margin-left .34s var(--ease-out);
+}
+
+.side-nav button {
+  position: relative;
+  transition: background var(--motion-base) var(--ease-out), color var(--motion-base), transform var(--motion-fast);
+}
+.side-nav button svg { transition: transform var(--motion-base) var(--ease-spring); }
+.side-nav button:hover { transform: translateX(2px); }
+.side-nav button:hover svg { transform: scale(1.14); }
+
+.side-nav button::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 99px;
+  background: var(--accent, var(--yellow));
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: height var(--motion-base) var(--ease-spring), opacity var(--motion-base);
+}
+.side-nav button.active::before { height: 22px; opacity: 1; }
+
+.watchlist-count { transition: transform var(--motion-base) var(--ease-spring), background var(--motion-fast); }
+.side-nav button:hover .watchlist-count { transform: scale(1.12); }
+
+.brand-mark { transition: transform .38s var(--ease-spring), box-shadow .3s var(--ease-out); }
+.brand:hover .brand-mark {
+  transform: rotate(-8deg) scale(1.06);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.profile-button { transition: transform var(--motion-base) var(--ease-spring), border-color var(--motion-fast), color var(--motion-fast); }
+.profile-button:hover { transform: scale(1.06); border-color: var(--accent, var(--yellow)); color: var(--accent, var(--yellow)); }
+
+/* --- Search field focus glow ---------------------------------------------- */
+.search-box { transition: border-color var(--motion-base), box-shadow var(--motion-base), background var(--motion-base); }
+.search-box:focus-within {
+  border-color: var(--accent, var(--yellow));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: #211d27;
+}
+
+/* --- Continue Watching: lift + progress bar grows in ---------------------- */
+.continue-card:hover { transform: translateY(-5px); }
+
+.continue-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transform-origin: left center;
+  animation: progress-grow .95s var(--ease-out) both;
+}
+
+@keyframes progress-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* --- Chips and ranked lists ----------------------------------------------- */
+.mood-chip:hover,
+.genre-chip:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent, var(--yellow)) 50%, transparent);
+  box-shadow: 0 10px 26px -14px var(--accent-glow);
+}
+.mood-chip:active,
+.genre-chip:active { transform: translateY(-1px) scale(.99); }
+
+.ranked-item { animation: card-rise .5s var(--ease-out) both; }
+.ranked-item:nth-of-type(1) { animation-delay: 0s; }
+.ranked-item:nth-of-type(2) { animation-delay: .05s; }
+.ranked-item:nth-of-type(3) { animation-delay: .1s; }
+.ranked-item:nth-of-type(4) { animation-delay: .15s; }
+.ranked-item:nth-of-type(5) { animation-delay: .2s; }
+
+/* --- Status tabs, star rating, inline messages ---------------------------- */
+.watchlist-status-tabs button { transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
+.watchlist-status-tabs button.active { animation: tab-pop .38s var(--ease-spring); }
+
+@keyframes tab-pop {
+  0%   { transform: scale(.95); }
+  60%  { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+
+.detail-rating-stars button {
+  transition: transform var(--motion-base) var(--ease-spring), color var(--motion-fast);
+}
+.detail-rating-stars button:hover { transform: scale(1.22); }
+.detail-rating-stars button:active { transform: scale(.92); }
+
+.status-message { animation: card-rise .4s var(--ease-out) both; }
+
+/* --- Overlays: backdrop fade + panel spring ------------------------------- */
+.modal-backdrop,
+.detail-page-backdrop,
+.player-backdrop { animation: backdrop-in .28s ease both; }
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.detail-page { animation: detail-rise .46s var(--ease-out) both; }
+
+@keyframes detail-rise {
+  from { opacity: 0; transform: translateY(26px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.auth-modal { animation: modal-spring .42s var(--ease-spring) both; }
+
+@keyframes modal-spring {
+  from { opacity: 0; transform: translateY(16px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Reduced motion: one master switch for the whole layer ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .hero-banner .hero-backdrop { animation: none !important; opacity: .78; transform: none; }
+
+  /* Spinners communicate progress, so they keep turning (slowly). */
+  .auth-spinner,
+  .poster-row-refresh .is-spinning {
+    animation-duration: 1.2s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

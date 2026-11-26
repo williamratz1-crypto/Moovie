@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Moovie — motion preview</title>
+    <!-- Dev-only playground: loads the real stylesheet so the animations can be
+         reviewed without env vars or API access. Not part of the build. -->
+    <link rel="stylesheet" href="/src/styles.css" />
+    <style>
+      .demo-toolbar {
+        position: fixed; right: 18px; bottom: 18px; z-index: 50;
+        display: flex; gap: 8px; align-items: center;
+        padding: 10px 12px; border-radius: 12px;
+        background: #19171de6; border: 1px solid #332e38;
+        backdrop-filter: blur(8px);
+        animation: card-rise .5s var(--ease-out) both;
+      }
+      .demo-toolbar button {
+        border: 1px solid #3a3540; background: #211e26; color: #eee8f1;
+        border-radius: 8px; padding: 8px 12px; font-size: 11px; font-weight: 700; cursor: pointer;
+        transition: transform .16s var(--ease-spring), border-color .18s;
+      }
+      .demo-toolbar button:hover { transform: translateY(-1px) scale(1.03); border-color: var(--yellow); }
+      .demo-toolbar span { font-size: 10px; color: #8f8995; letter-spacing: .08em; }
+      .demo-poster { width: 100%; height: 100%; display: block; }
+      /* Mirrors the reduced-motion guard so the toggle can demonstrate it. */
+      .force-reduced *, .force-reduced *::before, .force-reduced *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#"><span class="brand-mark">▣</span><span>moovie<span class="brand-dot">.</span></span></a>
+        <div class="sidebar-menu-row"><div class="side-label">MENU</div></div>
+        <nav class="side-nav">
+          <button class="active">◆ Home</button>
+          <button>◇ Discover</button>
+          <button>⌕ Search</button>
+          <button>☺ Profile</button>
+          <button>⚙ Settings</button>
+          <button>❑ Watchlist <span class="watchlist-count">6</span></button>
+          <button>✓ Completed <span class="watchlist-count">12</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="profile-chip profile-chip-button">
+            <div class="avatar">M</div>
+            <div><strong>Movie lover</strong><span>Guest account</span></div>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="search-box">⌕ <input placeholder="Search movies, series..." /> <kbd>⌘ K</kbd></div>
+          <button class="profile-button" aria-label="Open profile">☺</button>
+        </header>
+
+        <div class="page-view" id="page">
+          <section class="hero-banner" aria-label="Featured">
+            <div class="hero-backdrop" style="background:radial-gradient(ellipse at 72% 40%,#6b4f1d,#3a2b1f 45%,#1b1820 100%)"></div>
+            <div class="hero-shade"></div>
+            <div class="hero-copy">
+              <span class="hero-tag">FEATURED THIS WEEK</span>
+              <h2>The Quiet Horizon</h2>
+              <div class="hero-meta hero-meta-redesign">
+                <span class="hero-rating">★ 8.4</span>
+                <span class="hero-status"><i></i> NOW SHOWING</span>
+                <span class="hero-meta-type">MOVIE</span>
+              </div>
+              <div class="hero-genres"><span class="genre-pill">Drama</span><span class="genre-pill">Sci-Fi</span></div>
+              <p>A lighthouse keeper maps a coastline that keeps rewriting itself.</p>
+              <div class="hero-actions">
+                <button class="hero-button">▶ Watch Now</button>
+                <button class="hero-add-button">＋</button>
+                <button class="hero-secondary hero-explore">Explore More Like This</button>
+              </div>
+            </div>
+            <div class="hero-controls">
+              <button class="hero-arrow">‹</button>
+              <div class="hero-dots">
+                <button class="hero-dot active"></button>
+                <button class="hero-dot"></button>
+                <button class="hero-dot"></button>
+                <button class="hero-dot"></button>
+              </div>
+              <button class="hero-arrow">›</button>
+            </div>
+          </section>
+
+          <section class="continue-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Continue watching</h2></div>
+            </div>
+            <div class="continue-grid">
+              <button class="continue-card">
+                <div class="continue-poster"><div class="demo-poster" style="background:linear-gradient(160deg,#4a3b21,#221d28)"></div></div>
+                <div class="continue-info">
+                  <span class="continue-label">MOVIE · 42 MIN LEFT</span>
+                  <strong>The Quiet Horizon</strong>
+                  <div class="continue-progress"><i style="width:62%"></i></div>
+                </div>
+              </button>
+              <button class="continue-card">
+                <div class="continue-poster"><div class="demo-poster" style="background:linear-gradient(160deg,#22344a,#1d2028)"></div></div>
+                <div class="continue-info">
+                  <span class="continue-label">SERIES · S2 E4</span>
+                  <strong>Night Cartography</strong>
+                  <div class="continue-progress"><i style="width:28%"></i></div>
+                </div>
+              </button>
+            </div>
+          </section>
+
+          <section class="catalog-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">TRENDING NOW</span><h2>Trending Now</h2></div>
+              <span class="result-count">12 TITLES</span>
+            </div>
+            <div class="movie-grid" id="grid"></div>
+          </section>
+
+          <div class="watchlist-status-tabs" role="group">
+            <button class="active">All titles<span>18</span></button>
+            <button>Watching<span>2</span></button>
+            <button>Plan to Watch<span>9</span></button>
+            <button>Completed<span>12</span></button>
+          </div>
+
+          <div class="status-message" style="margin-top:18px">
+            <strong>Everything here is the real stylesheet.</strong>
+            <span>Hover a poster, press the hero button, switch tabs, or replay the entrance.</span>
+          </div>
+
+          <footer class="footer-note">MOOVIE WEB <span>•</span> MOTION PREVIEW</footer>
+        </div>
+      </main>
+    </div>
+
+    <div class="demo-toolbar">
+      <span>MOTION PREVIEW</span>
+      <button id="replay">Replay entrance</button>
+      <button id="detail">Open detail panel</button>
+      <button id="reduced" title="Simulates prefers-reduced-motion">Reduced motion</button>
+    </div>
+
+    <script>
+      const palettes = [
+        ['#4a3b21', '#221d28'], ['#22344a', '#1d2028'], ['#3d2230', '#201a22'],
+        ['#2b3a22', '#1b2118'], ['#452a1c', '#241c22'], ['#26313f', '#1a1d24'],
+        ['#3a2a44', '#1e1a24'], ['#4a3320', '#221d28'], ['#1f3a36', '#18211f'],
+        ['#3f2a1e', '#241b1e'], ['#2a2f4a', '#191b24'], ['#44301f', '#221c20'],
+      ];
+      const titles = ['The Quiet Horizon', 'Night Cartography', 'Salt & Static', 'Paper Moons',
+        'The Long Undertow', 'Glass Orchard', 'Hollow Season', 'Winter Frequency',
+        'Lantern Road', 'The Second Coast', 'Ash & Amber', 'Signal Garden'];
+
+      function buildGrid() {
+        const grid = document.getElementById('grid');
+        grid.innerHTML = titles.map((title, i) => {
+          const [a, b] = palettes[i % palettes.length];
+          const type = i % 3 === 0 ? 'SERIES' : 'MOVIE';
+          return `<div class="poster-card-wrap">
+            <button class="poster-card" aria-label="View ${title}">
+              <div class="poster-wrap">
+                <div class="demo-poster" style="background:linear-gradient(160deg,${a},${b})"></div>
+                <span class="poster-rating">★ ${(6 + (i % 4)).toFixed(1)}</span>
+              </div>
+              <span class="poster-title">${title}</span>
+              <span class="poster-year">${type} · 202${i % 6}</span>
+            </button>
+          </div>`;
+        }).join('');
+      }
+
+      // Replacing the node re-runs every entrance animation in the page.
+      function replay() {
+        const page = document.getElementById('page');
+        const clone = page.cloneNode(true);
+        page.replaceWith(clone);
+        buildGrid();
+        document.getElementById('page')?.classList.remove('page-view');
+        void clone.offsetWidth;
+        clone.classList.add('page-view');
+      }
+
+      buildGrid();
+      document.getElementById('replay').addEventListener('click', replay);
+
+      document.getElementById('detail').addEventListener('click', () => {
+        if (document.querySelector('.detail-page-backdrop')) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'detail-page-backdrop';
+        wrap.innerHTML = `<section class="detail-page">
+          <div class="detail-page-top"><button class="detail-back-button">← Back to browse</button><button class="detail-page-close">✕</button></div>
+          <div class="detail-page-hero">
+            <div class="detail-backdrop-image demo-poster" style="background:radial-gradient(ellipse at 60% 40%,#6b4f1d,#2a2119 60%,#141218 100%)"></div>
+            <div class="detail-page-hero-shade"></div>
+            <div class="detail-page-hero-content">
+              <div class="detail-page-poster"><div class="demo-poster" style="background:linear-gradient(160deg,#4a3b21,#221d28)"></div></div>
+              <div class="detail-page-heading"><span class="eyebrow">MOVIE</span><h2>The Quiet Horizon</h2>
+                <p class="detail-overview">A lighthouse keeper maps a coastline that keeps rewriting itself.</p>
+                <div class="detail-actions"><button class="detail-play-button">▶ Play</button><button class="detail-watch-button">＋ Watchlist</button></div>
+              </div>
+            </div>
+          </div>
+        </section>`;
+        document.body.appendChild(wrap);
+        wrap.querySelector('.detail-page-close').addEventListener('click', () => wrap.remove());
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+      });
+
+      document.getElementById('reduced').addEventListener('click', () => {
+        document.documentElement.classList.toggle('force-reduced');
+        const on = document.documentElement.classList.contains('force-reduced');
+        document.getElementById('reduced').textContent = on ? 'Motion: off' : 'Reduced motion';
+      });
+    </script>
+  </body>
+</html>

@@ -767,6 +767,9 @@ export default function App() {
   // Automatically rotate featured titles.
 useEffect(() => {
   if (section !== 'Home' || query || movies.length < 2) return;
+  // Respect reduced-motion: leave the first featured title on screen instead
+  // of rotating it every 7s (WCAG 2.2.2 — moving content the user can't stop).
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
   const timer = setInterval(() => {
     setHeroIndex((current) => (current + 1) % movies.length);
@@ -1290,6 +1293,8 @@ useEffect(() => {
           <button className="profile-button" aria-label="Open profile" onClick={() => { goToSection('Profile'); setQuery(''); }}><UserRound size={19} /></button>
         </header>
 
+        {/* Keyed on the section so every navigation replays the entry animation. */}
+        <div className="page-view" key={section}>
 {!query && section === 'Home' && movies[heroIndex] && (() => {
   const featured = movies[heroIndex]
   const featuredType = featured.media_type || 'movie';
@@ -1458,6 +1463,7 @@ useEffect(() => {
           <div className="movie-grid">{tvRecommendations.slice(0, 12).map((show) => <PosterCard key={`tv-${show.id}`} movie={show} onSelect={openDetails} />)}</div>
         </section>}
         </>}
+        </div>
         <footer className="footer-note">MOOVIE WEB <span>•</span> BUILT FOR THE LOVE OF FILM</footer>
       </main>
 
