@@ -1042,7 +1042,7 @@ useEffect(() => {
     if (!nextName) { setAuthError('Enter a display name first.'); return; }
     setProfileSaveBusy(true); setAuthError('');
     try {
-      if (authUser) { await updateProfile(authUser, { displayName: nextName }); setAuthUser(auth.currentUser); }
+      if (authUser) { await updateProfile(authUser, { displayName: nextName }); setProfileNameDraft(nextName); setAuthUser(auth.currentUser); }
       else { localStorage.setItem('moovie-profile-name-v1', nextName); setGuestDisplayName(nextName); }
     } catch (failure) { setAuthError(authErrorMessage(failure)); }
     finally { setProfileSaveBusy(false); }
@@ -1281,6 +1281,7 @@ useEffect(() => {
   }
 
   const accountName = authUser?.displayName || guestDisplayName || authUser?.email?.split('@')[0] || 'Movie lover';
+  useEffect(() => { setProfileNameDraft(accountName); }, [accountName]);
   const accountInitial = accountName.charAt(0).toUpperCase() || 'M';
   const ratingEntries = Object.entries(ratings).filter(([, value]) => Number(value) >= 1 && Number(value) <= 6);
   const profileRatedTitles = watchlist.filter((item) => Number(ratings[getDocId(item)]) >= 1).sort((a,b) => Number(ratings[getDocId(b)]) - Number(ratings[getDocId(a)]));
