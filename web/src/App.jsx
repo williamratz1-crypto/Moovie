@@ -1149,6 +1149,7 @@ useEffect(() => {
         if (existing) {
           await setDoc(itemRef, {
             status: 'watching',
+            hideFromContinueWatching: false,
             updatedAt: serverTimestamp(),
           }, { merge: true });
         } else {
