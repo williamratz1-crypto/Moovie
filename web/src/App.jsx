@@ -111,7 +111,7 @@ function getDocId(movie) {
 }
 
 const ROUTE_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile' };
+const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile', Similar: 'similar' };
 const SECTION_BY_ROUTE = Object.fromEntries(Object.entries(SECTION_ROUTES).map(([name, route]) => [route || '/', name]));
 function routeHref(route) { return `${ROUTE_BASE}/${route}`.replace(/\/+$/, '') || `${ROUTE_BASE}/`; }
 function parseTitleRoute(pathname) {
@@ -1561,7 +1561,7 @@ useEffect(() => {
             onClick={() => {
               setSimilarSource({ ...featured, media_type: featuredType });
               setQuery('');
-              setSection('Similar');
+              goToSection('Similar');
             }}
           >
             Explore More Like This
