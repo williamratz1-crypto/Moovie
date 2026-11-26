@@ -1,55 +1,102 @@
 # Moovie Web
 
-A lightweight React + Vite Progressive Web App for the Moovie project. This frontend lives separately from the existing Android application.
+Moovie is a React + Vite movie and TV discovery app. The web frontend is maintained separately from the Android application.
+
+## Features
+
+- Discover trending and top-rated movies and TV series.
+- Browse titles by genre and mood.
+- Search movies and TV shows, filter by release year and country, and sort results.
+- Open title details, including overview, cast, trailers, ratings, and similar titles.
+- Manage a watchlist with Plan to Watch, Watching, Completed, and Dropped statuses.
+- Track playback progress and continue watching.
+- Rate titles on a six-star scale.
+- View profile activity and collection statistics.
+- Sign in with Google or email/password using Firebase Authentication.
+- Sync account collection data with Cloud Firestore; guest data is stored locally in the browser.
+- Customize the app accent with appearance themes in Settings.
+- Responsive layout and PWA installation support.
 
 ## Requirements
 
 - Node.js 20.19+ or 22.12+
 - npm
-- A TMDB API Read Access Token
+- TMDB API Read Access Token
+- Firebase project configuration for authentication and cloud sync
 
 ## Run locally
 
-1. Open a terminal in this `web/` directory.
-2. Install dependencies:
+From the repository root:
 
-   ```bash
-   npm install
-   ```
+```bash
+cd web
+npm install
+```
 
-3. Copy `.env.example` to `.env` and set `VITE_TMDB_READ_TOKEN` to your TMDB Read Access Token.
-4. Start the development server:
+Create a local `.env` file by copying `.env.example`:
 
-   ```bash
-   npm run dev
-   ```
+```bash
+cp .env.example .env
+```
 
-5. Open the local URL printed by Vite.
+Set your TMDB Read Access Token:
 
-## Production build
+```env
+VITE_TMDB_READ_TOKEN=your_tmdb_read_access_token_here
+```
+
+For Firebase sign-in and cloud sync, add your Firebase web app configuration to the same `.env` file:
+
+```env
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_firebase_app_id
+```
+
+Enable the required sign-in providers in Firebase Authentication and configure Firestore for your project.
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Open the local URL printed by Vite. Restart the dev server after changing environment variables.
+
+## Build and preview
 
 ```bash
 npm run build
 npm run preview
 ```
 
-The production build is written to `dist/`.
+The production output is written to `dist/`.
 
 ## PWA
 
-The app includes a web app manifest, install icon, and a small service worker that caches the app shell and same-origin static assets. Install availability requires HTTPS (or localhost during development).
+The app includes a manifest, install icon, and service worker for app-shell and same-origin static-asset caching. Installation is supported on HTTPS deployments and localhost.
 
 ## Security
 
-Never commit `.env` or a real TMDB token. Vite exposes variables prefixed with `VITE_` to browser code, so a TMDB token embedded this way is visible to users. For a public production deployment, use a restricted TMDB key/token and consider a small server-side proxy before adding private credentials.
+- Never commit `.env` or real credentials.
+- Variables prefixed with `VITE_` are included in browser-side code. Treat the TMDB token and Firebase web configuration as client-visible; do not place private server credentials in them.
+- Restrict and monitor API usage in provider dashboards. For public deployment, consider a server-side proxy for TMDB requests if you need to protect a token or enforce usage limits.
+- Configure Firebase Authentication and Firestore security rules before deploying.
 
-## Current scope
+## Project structure
 
-- Trending movie feed
-- Top-rated discovery feed
-- Search for movies and TV
-- Basic title details
-- Responsive desktop/mobile layout
-- PWA installation foundation
-
-Watchlist sync, authentication, recommendations, playback, and social features are not connected yet.
+```text
+web/
+├── public/          # Static assets and PWA files
+├── src/
+│   ├── App.jsx      # App UI, routes, and feature logic
+│   ├── firebase.js  # Firebase initialization
+│   └── *.css        # App, authentication, and player styles
+├── .env.example     # Environment variable template
+├── index.html
+├── package.json
+└── vite.config.js
+```
