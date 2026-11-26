@@ -1174,7 +1174,7 @@ useEffect(() => {
       if (found) {
         return current.map((item) =>
           Number(item.id) === Number(movie.id) && (item.media_type || 'movie') === mediaType
-            ? { ...item, status: 'watching' }
+            ? { ...item, status: 'watching', hideFromContinueWatching: false }
             : item
         );
       }
