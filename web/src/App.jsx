@@ -3,7 +3,7 @@ import {
   Search, Film, Compass, Bookmark, UserRound, Play, Star, X, SlidersHorizontal, RefreshCw,
   Clapperboard, Sparkles, BookmarkCheck, LogOut, Mail, Lock,
   User, Chrome, LoaderCircle, CheckCircle2, PanelLeftClose, PanelLeftOpen,
-  Clock3, Heart, Trash2
+  Clock3, Heart, Trash2, Settings, Palette
 } from 'lucide-react';
 import {
   onAuthStateChanged, createUserWithEmailAndPassword,
@@ -35,6 +35,18 @@ const MOOD_FILTERS = [
   { name: 'Crime Thriller', icon: '🕵️', genres: '80,53' },
   { name: 'Family Night', icon: '🍿', genres: '10751,16' },
   { name: 'Chill', icon: '🌙', genres: '18,35' },
+];
+const THEME_PRESETS = [
+  { id: 'solar-gold', name: 'Solar Gold', tag: 'DEFAULT', accent: '#f5c518', desc: 'Moovie signature radiant gold.' },
+  { id: 'cyber-purple', name: 'Cyber Purple', tag: 'NEON', accent: '#b57bff', desc: 'Deep synthwave violet glow.' },
+  { id: 'crimson-red', name: 'Crimson Red', tag: 'VIBRANT', accent: '#ff4d5e', desc: 'Bold electric action red.' },
+  { id: 'electric-cyan', name: 'Electric Cyan', tag: 'COOL', accent: '#3fd9ff', desc: 'Futuristic sci-fi neon teal.' },
+  { id: 'emerald-green', name: 'Emerald Green', tag: 'FRESH', accent: '#39d98a', desc: 'Crisp high-energy emerald.' },
+  { id: 'sakura-pink', name: 'Sakura Pink', tag: 'PASTEL', accent: '#ff8fb8', desc: 'Soft romantic cherry blossom.' },
+  { id: 'sunset-amber', name: 'Sunset Amber', tag: 'WARM', accent: '#ff9e4d', desc: 'Warm twilight amber glow.' },
+  { id: 'royal-violet', name: 'Royal Violet', tag: 'DEEP', accent: '#8a7bff', desc: 'Regal atmospheric lavender.' },
+  { id: 'sky-blue', name: 'Sky Blue', tag: 'CLEAR', accent: '#5ab8ff', desc: 'Clean open-sky digital blue.' },
+  { id: 'yume-sage', name: 'Sage Green', tag: 'CALM', accent: '#9fc97f', desc: 'Original calm sage aesthetic.' },
 ];
 const GENRE_NAMES = {28:'Action',12:'Adventure',16:'Animation',35:'Comedy',80:'Crime',99:'Documentary',18:'Drama',10751:'Family',14:'Fantasy',36:'History',27:'Horror',10402:'Music',9648:'Mystery',10749:'Romance',878:'Sci-Fi',53:'Thriller',10752:'War',37:'Western'};
 const BROWSE_GENRES = [
@@ -113,7 +125,7 @@ function getDocId(movie) {
 }
 
 const ROUTE_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile', Similar: 'similar' };
+const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile', Settings: 'settings', Similar: 'similar' };
 const SECTION_BY_ROUTE = Object.fromEntries(Object.entries(SECTION_ROUTES).map(([name, route]) => [route || '/', name]));
 function routeHref(route) { return `${ROUTE_BASE}/${route}`.replace(/\/+$/, '') || `${ROUTE_BASE}/`; }
 function parseTitleRoute(pathname) {
@@ -262,8 +274,74 @@ function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRa
  </section>;
 }
 
-export default function App() {
+export default function SettingsPage({ authUser, accountName, profileAvatar, profileNameDraft, onProfileNameChange, onSaveProfileName, profileSaveBusy, onChooseAvatar, onSignOut, onSignIn, onDeleteAccount, onClearGuestData, authError, authBusy, themeId, setThemeId }) {
+  const [settingsTab, setSettingsTab] = useState('profile');
+  const settingsTabs = [
+    { id: 'profile', label: 'Profile', icon: UserRound },
+    { id: 'appearance', label: 'Appearance', icon: Palette },
+  ];
+  const activeTheme = THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
+  return <section className="settings-page">
+    <header className="settings-page-heading">
+      <span className="eyebrow">MOOVIE SETTINGS</span>
+      <h1>Settings</h1>
+      <p>Manage your account and appearance.</p>
+    </header>
+    <div className="settings-layout">
+      <nav className="settings-nav-card" aria-label="Settings sections">
+        {settingsTabs.map((tab) => {
+          const Icon = tab.icon;
+          return <button type="button" key={tab.id} className={settingsTab === tab.id ? 'active' : ''} onClick={() => setSettingsTab(tab.id)}>
+            <Icon size={17}/><span>{tab.label}</span>
+          </button>;
+        })}
+      </nav>
+      <div className="settings-panel-column">
+        {settingsTab === 'profile' ? <section className="settings-panel settings-account-panel">
+          <div className="settings-panel-heading"><span className="eyebrow">ACCOUNT</span><h2>Profile</h2><p>Manage your Moovie identity and account access.</p></div>
+          <div className="settings-account-identity">
+            <div className="profile-large-avatar">{profileAvatar || (accountName || 'M').charAt(0).toUpperCase()}</div>
+            <div className="profile-identity-copy"><strong>{accountName}</strong><span>{authUser?.email || 'Guest account'}</span><small>{authUser ? 'CLOUD-SYNCED ACCOUNT' : 'LOCAL GUEST PROFILE'}</small></div>
+          </div>
+          <div className="settings-avatar-picker" aria-label="Choose profile avatar">
+            {['🎬','🍿','🎥','🌟','🦋','🐈','👾','🖤'].map((avatar) => <button type="button" key={avatar} className={profileAvatar === avatar ? 'active' : ''} onClick={() => onChooseAvatar(avatar)} aria-label={'Choose ' + avatar}>{avatar}</button>)}
+          </div>
+          <label className="settings-name-field"><span>DISPLAY NAME</span><input value={profileNameDraft} onChange={(event) => onProfileNameChange(event.target.value)} maxLength={32} placeholder="Your name"/></label>
+          <button type="button" className="settings-save-name" onClick={onSaveProfileName} disabled={profileSaveBusy}>{profileSaveBusy ? 'Saving…' : 'Save display name'}</button>
+          <div className="settings-account-actions">
+            {authUser ? <>
+              <button type="button" className="detail-watch-button" onClick={onSignOut} disabled={authBusy}><LogOut size={15}/> Sign out</button>
+              <button type="button" className="profile-delete-button" onClick={onDeleteAccount} disabled={authBusy}><Trash2 size={15}/> Delete account &amp; data</button>
+            </> : <>
+              <button type="button" className="detail-play-button" onClick={onSignIn}><UserRound size={15}/> Sign in / Create account</button>
+              <button type="button" className="profile-delete-button" onClick={onClearGuestData} disabled={authBusy}><Trash2 size={15}/> Clear guest data</button>
+            </>}
+          </div>
+          {authError && <p className="auth-error profile-account-error">{authError}</p>}
+        </section> : <section className="settings-panel settings-appearance-panel">
+          <div className="settings-theme-heading"><div><span className="eyebrow">THEME &amp; ACCENT COLORS</span><h2>Appearance</h2><p>Choose the accent color across your Moovie experience.</p></div><button type="button" className="settings-reset-theme" onClick={() => setThemeId('solar-gold')} disabled={themeId === 'solar-gold'}>Reset</button></div>
+          <div className="settings-live-preview">
+            <div className="settings-preview-topline"><span className="eyebrow">LIVE PREVIEW</span><span className="settings-preview-theme">{activeTheme.name}</span></div>
+            <div className="settings-preview-actions"><button type="button" className="settings-preview-watch"><Play size={14} fill="currentColor"/> Watch Now</button><div className="settings-preview-badges"><span>★ 8.8 MATCH</span><b>HD</b></div></div>
+            <div className="settings-preview-progress"><div><span>Progress · 14:20 / 24:00</span><strong>60%</strong></div><i><span/></i></div>
+            <small>{activeTheme.name} · Accent preview updates instantly</small>
+          </div>
+          <div className="settings-palette-heading"><span className="eyebrow">SELECT THEME PALETTE</span><span>{THEME_PRESETS.length} THEMES</span></div>
+          <div className="settings-theme-grid">
+            {THEME_PRESETS.map((theme) => <button type="button" key={theme.id} className={'settings-theme-card' + (themeId === theme.id ? ' active' : '')} onClick={() => setThemeId(theme.id)} aria-pressed={themeId === theme.id}>
+              <span className="settings-theme-swatch" style={{ '--theme-swatch': theme.accent }}>{themeId === theme.id ? '✓' : ''}</span>
+              <span className="settings-theme-copy"><span className="settings-theme-name">{theme.name}<b>{theme.tag}</b></span><span className="settings-theme-desc">{theme.desc}</span></span>
+            </button>)}
+          </div>
+        </section>}
+      </div>
+    </div>
+  </section>;
+}
+
+function App() {
   const [section, setSection] = useState('Home');
+  const [themeId, setThemeId] = useState(() => localStorage.getItem('moovie-theme-v1') || 'solar-gold');
   const [watchlistFilter, setWatchlistFilter] = useState('all');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [movies, setMovies] = useState([]);
@@ -341,6 +419,14 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [cloudError, setCloudError] = useState('');
   const migratedUid = useRef('');
+
+  useEffect(() => {
+    const preset = THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
+    try {
+      document.documentElement.style.setProperty('--accent', preset.accent);
+      localStorage.setItem('moovie-theme-v1', themeId);
+    } catch {}
+  }, [themeId]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -1470,6 +1556,7 @@ useEffect(() => {
           <button className={section === 'Discover' ? 'active' : ''} onClick={() => { goToSection('Discover'); setQuery(''); }}><Compass /> Discover</button>
           <button className={section === 'Search' ? 'active' : ''} onClick={() => { goToSection('Search'); setQuery(''); setError(''); }}><Search /> Search</button>
           <button className={section === 'Profile' ? 'active' : ''} onClick={() => { goToSection('Profile'); setQuery(''); setError(''); }}><UserRound /> Profile</button>
+          <button className={section === 'Settings' ? 'active' : ''} onClick={() => { goToSection('Settings'); setQuery(''); }}><Settings /> Settings</button>
           <button className={section === 'Watchlist' ? 'active' : ''} onClick={() => { goToSection('Watchlist'); setQuery(''); setError(''); }}><Bookmark /> Watchlist <span className="watchlist-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped').length}</span></button>
           <button className={section === 'Watched' ? 'active' : ''} onClick={() => { goToSection('Watched'); setQuery(''); setError(''); }}><CheckCircle2 /> Completed <span className="watchlist-count">{watchlist.filter((item) => item.status === 'completed').length}</span></button>
         </nav>
@@ -1569,7 +1656,7 @@ useEffect(() => {
           </div>
         </section>}
 
-        {section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} profileAvatar={profileAvatar} profileNameDraft={profileNameDraft} onProfileNameChange={setProfileNameDraft} onSaveProfileName={saveProfileName} profileSaveBusy={profileSaveBusy} onChooseAvatar={chooseProfileAvatar} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onSignIn={()=>{setAuthMode('login');setAuthError('');setAuthOpen(true);}} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
+        {section === 'Settings' ? <SettingsPage authUser={authUser} accountName={accountName} profileAvatar={profileAvatar} profileNameDraft={profileNameDraft} onProfileNameChange={setProfileNameDraft} onSaveProfileName={saveProfileName} profileSaveBusy={profileSaveBusy} onChooseAvatar={chooseProfileAvatar} onSignOut={handleSignOut} onSignIn={() => { setAuthMode('login'); setAuthError(''); setAuthOpen(true); }} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy} themeId={themeId} setThemeId={setThemeId}/> : section === 'Profile' ? <ProfileDashboard authUser={authUser} accountName={accountName} profileAvatar={profileAvatar} profileNameDraft={profileNameDraft} onProfileNameChange={setProfileNameDraft} onSaveProfileName={saveProfileName} profileSaveBusy={profileSaveBusy} onChooseAvatar={chooseProfileAvatar} stats={profileStats} recentlyWatched={profileRecentlyWatched} topRatedTitles={profileRatedTitles.slice(0,12)} onOpenTitle={openDetails} onSignOut={handleSignOut} onSignIn={()=>{setAuthMode('login');setAuthError('');setAuthOpen(true);}} onDeleteAccount={deleteAccountAndData} onClearGuestData={clearGuestData} authError={authError} authBusy={authBusy}/> : section === 'Search' ? <section className="search-discovery-page">
           <div className="search-discovery-heading">
             <span className="eyebrow">YOUR NEXT WATCH STARTS HERE</span>
             <h1>What's on your mind?</h1>
