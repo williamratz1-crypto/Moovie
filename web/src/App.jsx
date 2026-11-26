@@ -851,8 +851,8 @@ useEffect(() => {
 }, [movies, section, query]);
 
   const searchFiltersActive = Boolean(searchCountry || searchYear || searchGenre || searchMediaType !== 'all' || searchSort !== 'relevance');
-  async function fetchSearchPage(page, signal) {
-    if (searchFiltersActive && (!query.trim() || searchCountry || searchYear || searchGenre)) {
+  async function fetchSearchPage(page, signal, filtersActive) {
+    if (filtersActive && (!query.trim() || searchCountry || searchYear || searchGenre)) {
       const common = [
         'include_adult=false',
         'sort_by=' + (searchSort === 'oldest' ? 'primary_release_date.asc' : searchSort === 'newest' ? 'primary_release_date.desc' : searchSort === 'rating' ? 'vote_average.desc' : 'popularity.desc'),
@@ -893,15 +893,25 @@ useEffect(() => {
     if (section !== 'Search') {
       if (!query.trim()) {
         setSearchResults([]);
+        setSearchPage(1);
+        setSearchTotalPages(1);
         return undefined;
       }
       let alive = true;
-      const timer = setTimeout(() => {
-        tmdb(`/search/multi?query=${encodeURIComponent(query.trim())}&include_adult=false`)
-          .then((data) => { if (alive) setSearchResults((data.results || []).filter((item) => item.media_type !== 'person')); })
-          .catch((err) => { if (alive) setError(err.message); });
+      const controller = new AbortController();
+      const timer = setTimeout(async () => {
+        try {
+          const { results, totalPages } = await fetchSearchPage(1, controller.signal, false);
+          if (alive) {
+            setSearchResults(results);
+            setSearchTotalPages(totalPages);
+            setSearchPage(1);
+          }
+        } catch (err) {
+          if (alive && err.name !== 'AbortError') setError(err.message);
+        }
       }, 350);
-      return () => { alive = false; clearTimeout(timer); };
+      return () => { alive = false; clearTimeout(timer); controller.abort(); };
     }
 
     if (!query.trim() && !searchFiltersActive) {
@@ -917,7 +927,7 @@ useEffect(() => {
     setError('');
     const timer = setTimeout(async () => {
       try {
-        const { results, totalPages } = await fetchSearchPage(1, controller.signal);
+        const { results, totalPages } = await fetchSearchPage(1, controller.signal, searchFiltersActive);
         if (!alive) return;
         setSearchResults(results);
         setSearchTotalPages(totalPages);
@@ -928,14 +938,15 @@ useEffect(() => {
         if (alive) setLoading(false);
       }
     }, query.trim() ? 350 : 80);
-    return () => { alive = false; clearTimeout(timer); controller.abort(); };  }, [section, query, searchCountry, searchYear, searchGenre, searchMediaType, searchSort]);
+    return () => { alive = false; clearTimeout(timer); controller.abort(); };
+  }, [section, query, searchCountry, searchYear, searchGenre, searchMediaType, searchSort]);
   async function loadMoreSearchResults() {
     if (searchLoadingMore) return;
     const nextPage = searchPage + 1;
     if (nextPage > searchTotalPages) return;
     setSearchLoadingMore(true);
     try {
-      const { results } = await fetchSearchPage(nextPage);
+      const { results } = await fetchSearchPage(nextPage, undefined, section === 'Search' ? searchFiltersActive : false);
       const seen = new Set(searchResults.map((item) => `${item.media_type || 'movie'}-${item.id}`));
       const fresh = results.filter((item) => {
         const key = `${item.media_type || 'movie'}-${item.id}`;
@@ -1643,8 +1654,8 @@ useEffect(() => {
             {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails />)}</div>}
             {!loading && visibleMovies.length > 0 && searchPage < searchTotalPages && (
               <div className="search-load-more">
-                <button className="search-clear-filters" onClick={loadMoreSearchResults} disabled={searchLoadingMore}>
-                  {searchLoadingMore ? 'Loading…' : `Load more results (page ${searchPage + 1} of ${searchTotalPages})`}
+                <button className="search-load-more-button" onClick={loadMoreSearchResults} disabled={searchLoadingMore}>
+                  {searchLoadingMore ? 'Loading…' : 'Load more results'}
                 </button>
               </div>
             )}
@@ -1690,6 +1701,13 @@ useEffect(() => {
           {!authReady && <div className="status-message">Checking account…</div>}
           {!loading && !error && visibleMovies.length === 0 && <div className="status-message">{section === 'Watchlist' && !query ? 'Your collection is empty. Open a title and add it to Plan to Watch to save it here.' : section === 'Watched' && !query ? 'No completed titles yet. Mark a title as completed when you finish it.' : section === 'Similar' ? 'No similar titles were found for this selection.' : 'No titles found. Try another search.'}</div>}
           {!loading && <div className="movie-grid">{visibleMovies.map((movie) => <PosterCard key={`${movie.media_type || 'movie'}-${movie.id}`} movie={movie} onSelect={openDetails} showMoreDetails={Boolean(query.trim())} />)}</div>}
+          {section !== 'Search' && query.trim() && !loading && visibleMovies.length > 0 && searchPage < searchTotalPages && (
+            <div className="search-load-more">
+              <button className="search-load-more-button" onClick={loadMoreSearchResults} disabled={searchLoadingMore}>
+                {searchLoadingMore ? 'Loading…' : 'Load more results'}
+              </button>
+            </div>
+          )}
         </section>
         {section === 'Discover' && !query && tvRecommendations.length > 0 && <section className="catalog-section recommendation-section">
           <div className="section-heading"><div><span className="eyebrow">SERIES WORTH YOUR TIME</span><h2>Trending TV shows</h2></div><span className="result-count">UPDATED WEEKLY</span></div>
