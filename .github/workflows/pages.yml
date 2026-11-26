@@ -1,9 +1,22 @@
 name: Deploy website to GitHub Pages
 
+# Publishes two things to the same Pages site:
+#   /        → the static download landing page (repo-root index.html + logo.jpg)
+#   /app/    → the built React web app (web/)
+#   /404.html → a copy of the app shell, so deep links such as
+#               /app/title/movie-550 survive a hard refresh (GitHub Pages serves
+#               /404.html for unknown paths; the app shell is built with
+#               --base=/app/ so its asset URLs are absolute and resolve from any
+#               depth, and the router reads the real pathname on boot).
+
 on:
   push:
     branches: [main]
-    paths: ["index.html", ".github/workflows/pages.yml"]
+    paths:
+      - "index.html"
+      - "logo.jpg"
+      - "web/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,13 +37,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Vite inlines VITE_* variables at build time, so the secrets have to be
+      # present here. Without them the app still deploys, but shows the
+      # "Firebase isn't configured" notice instead of silently white-screening.
+      - name: Check web secrets
+        env:
+          TMDB: ${{ secrets.VITE_TMDB_READ_TOKEN }}
+        run: |
+          if [ -z "$TMDB" ]; then
+            echo "::warning::Secret VITE_TMDB_READ_TOKEN is not set — the deployed web app will not be able to load titles. Add it under Settings > Secrets and variables > Actions."
+          fi
+
+      - name: Build web app
+        working-directory: web
+        env:
+          VITE_TMDB_READ_TOKEN: ${{ secrets.VITE_TMDB_READ_TOKEN }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: |
+          npm ci
+          npm run build -- --base=/app/
+
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/app
+          # Landing page stays at the site root.
+          cp index.html logo.jpg _site/
+          # Web app under /app/.
+          cp -R web/dist/. _site/app/
+          # SPA fallback: Pages serves this for any unknown path, which boots the
+          # app and lets the router resolve /app/<section> and /app/title/<key>.
+          cp web/dist/index.html _site/404.html
+          # Sanity-check the PWA files the service worker precaches actually
+          # shipped to the site root of the app (this is what silently broke the
+          # service worker before).
+          for f in manifest.webmanifest moovie-icon.svg sw.js index.html; do
+            test -f "_site/app/$f" || { echo "::error::_site/app/$f is missing"; exit 1; }
+          done
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "."
+          path: "_site"
 
       - name: Deploy to GitHub Pages
         id: deployment

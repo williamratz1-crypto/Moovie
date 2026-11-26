@@ -13,17 +13,18 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp,
-  getDocs, where, query as firestoreQuery, increment
+  getDocs, where, query as firestoreQuery
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
+import { authErrorMessage } from './messages';
+import { RATINGS_KEY, clearLocalLibraryBackup, getDocId, readRatings } from './library';
+import { useWatchlist } from './useWatchlist';
 import './auth.css';
 import './player.css';
 
 const API_ROOT = 'https://api.themoviedb.org/3';
 const IMAGE_ROOT = 'https://image.tmdb.org/t/p/';
 const token = import.meta.env.VITE_TMDB_READ_TOKEN;
-const WATCHLIST_KEY = 'moovie-watchlist-v1';
-const RATINGS_KEY = 'moovie-ratings-v1';
 const VIDSTUCK_EMBED_ROOT = 'https://vidstuck.cc/embed';
 
 const MOOD_FILTERS = [
@@ -98,32 +99,6 @@ async function tmdb(path, signal) {
 }
 
 function getFeaturedStatus(movie,today=new Date()) { const type=movie?.media_type==='tv'?'tv':'movie',raw=type==='tv'?movie?.first_air_date:movie?.release_date; if(!raw)return type==='tv'?'AIRING':'RELEASED'; const date=new Date(raw+'T00:00:00'); if(!Number.isFinite(date.getTime()))return type==='tv'?'AIRING':'RELEASED'; const days=Math.floor((new Date(today.getFullYear(),today.getMonth(),today.getDate())-date)/86400000); if(type==='tv')return Math.abs(days)<=7?'NEW EPISODES':'AIRING'; return days<0?'COMING SOON':days<=60?'NOW SHOWING':'RELEASED'; }
-function normalizeWatchStatus(status) {
-  if (status === 'watched') return 'completed';
-  if (status === 'want') return 'plan_to_watch';
-  return ['plan_to_watch', 'watching', 'completed', 'dropped'].includes(status) ? status : 'plan_to_watch';
-}
-
-function readWatchlist() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
-    return Array.isArray(saved) ? saved.map((item) => ({ ...item, status: normalizeWatchStatus(item.status), totalWatchedMinutes: Number(item.totalWatchedMinutes) || 0 })) : [];
-  } catch {
-    return [];
-  }
-}
-
-function readRatings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(RATINGS_KEY) || '{}');
-    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-  } catch { return {}; }
-}
-
-function getDocId(movie) {
-  return `${movie.media_type || 'movie'}-${Number(movie.id)}`;
-}
-
 const ROUTE_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const SECTION_ROUTES = { Home: '', Discover: 'discover', Search: 'search', Watchlist: 'watchlist', Watched: 'watched', Profile: 'profile', Settings: 'settings', Similar: 'similar' };
 const SECTION_BY_ROUTE = Object.fromEntries(Object.entries(SECTION_ROUTES).map(([name, route]) => [route || '/', name]));
@@ -138,77 +113,6 @@ function sectionFromPath(pathname) {
   const base = `${ROUTE_BASE}/`;
   const path = (pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '')).replace(/\/+$/, '') || '/';
   return SECTION_BY_ROUTE[path] || 'Home';
-}
-
-function toFirestoreItem(movie) {
-  const mediaType = movie.media_type || 'movie';
-  const date = movie.release_date || movie.first_air_date || '';
-  const parsedYear = Number(date.slice(0, 4));
-  return {
-    key: getDocId(movie),
-    tmdbId: Number(movie.id),
-    mediaType,
-    titleName: movie.title || movie.name || 'Untitled',
-    posterPath: movie.poster_path || null,
-    backdropPath: movie.backdrop_path || null,
-    year: Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : null,
-    rating: Number(movie.vote_average) || 0,
-    genreIds: Array.isArray(movie.genre_ids) ? movie.genre_ids.map(Number) : [],
-    runtimeMinutes: movie.runtimeMinutes ?? null,
-    status: normalizeWatchStatus(movie.status),
-    progressMinutes: movie.progressMinutes ?? null,
-    totalWatchedMinutes: Number(movie.totalWatchedMinutes) || 0,
-    season: movie.season ?? null,
-    episode: movie.episode ?? null,
-    hideFromContinueWatching: movie.hideFromContinueWatching === true,
-    addedAt: movie.addedAt || serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-}
-
-function fromFirestoreItem(id, data) {
-  const mediaType = data.mediaType || 'movie';
-  const year = data.year ? String(data.year) : '';
-  return {
-    id: Number(data.tmdbId),
-    media_type: mediaType,
-    title: mediaType === 'movie' ? data.titleName : undefined,
-    name: mediaType === 'tv' ? data.titleName : undefined,
-    poster_path: data.posterPath || null,
-    backdrop_path: data.backdropPath || null,
-    release_date: mediaType === 'movie' && year ? `${year}-01-01` : '',
-    first_air_date: mediaType === 'tv' && year ? `${year}-01-01` : '',
-    vote_average: Number(data.rating) || 0,
-    genre_ids: Array.isArray(data.genreIds) ? data.genreIds : [],
-    runtimeMinutes: data.runtimeMinutes ?? null,
-    status: normalizeWatchStatus(data.status),
-    progressMinutes: data.progressMinutes ?? null,
-    totalWatchedMinutes: Number(data.totalWatchedMinutes) || 0,
-    season: data.season ?? null,
-    episode: data.episode ?? null,
-    hideFromContinueWatching: data.hideFromContinueWatching === true,
-    addedAt: data.addedAt || null,
-    updatedAt: data.updatedAt || null,
-    firestoreId: id,
-  };
-}
-
-function authErrorMessage(error) {
-  const code = error?.code || '';
-  const messages = {
-    'auth/email-already-in-use': 'An account already exists with this email. Try signing in.',
-    'auth/invalid-email': 'Enter a valid email address.',
-    'auth/weak-password': 'Use a stronger password (at least 6 characters).',
-    'auth/user-not-found': 'No account was found with that email.',
-    'auth/wrong-password': 'Incorrect password. Try again.',
-    'auth/invalid-credential': 'Email or password is incorrect.',
-    'auth/popup-closed-by-user': 'The Google sign-in window was closed before finishing.',
-    'auth/popup-blocked': 'Your browser blocked the sign-in popup. Allow popups and try again.',
-    'auth/unauthorized-domain': 'This website domain is not authorised in Firebase Authentication.',
-    'auth/network-request-failed': 'Network error. Check your internet connection.',
-    'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
-  };
-  return messages[code] || error?.message || 'Authentication failed. Please try again.';
 }
 
 function PosterCard({movie,onSelect,showMoreDetails=false}){const title=movie.title||movie.name||'Untitled',[loaded,setLoaded]=useState(false),type=movie.media_type==='tv'?'SERIES':'MOVIE',year=(movie.release_date||movie.first_air_date||'').slice(0,4)||'YEAR TBA';return <div className="poster-card-wrap"><button className="poster-card" onClick={()=>onSelect(movie)} aria-label={`View ${title}`}><div className="poster-wrap">{movie.poster_path?<img className={`poster-image${loaded?' is-loaded':''}`} src={IMAGE_ROOT+'w342'+movie.poster_path} alt={title} loading="lazy" onLoad={()=>setLoaded(true)} onError={()=>setLoaded(true)}/>:<div className="poster-fallback"><Film size={30}/><span>NO POSTER</span></div>}<span className="poster-rating"><Star size={12} fill="currentColor"/> {movie.vote_average?movie.vote_average.toFixed(1):'—'}</span></div><span className="poster-title">{title}</span><span className="poster-year">{type} · {year}</span></button>{showMoreDetails&&<button className="poster-more-details" onClick={()=>onSelect(movie)}>More Details</button>}</div>}
@@ -381,7 +285,6 @@ export default function App() {
   const [ratingPrompt, setRatingPrompt] = useState(null);
   const completionPromptedRef = useRef(new Set());
   const [trailerOpen, setTrailerOpen] = useState(false);
-  const [watchlist, setWatchlist] = useState(readWatchlist);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [trailerUrl, setTrailerUrl] = useState('');
@@ -418,7 +321,18 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [cloudError, setCloudError] = useState('');
-  const migratedUid = useRef('');
+
+  // One owner for the watchlist: local state, the Firestore subscription, the
+  // guest localStorage backup and every mutation. Mutations apply locally first
+  // and roll back if the write is rejected, so the UI responds instantly and
+  // still works offline (Firestore queues the write via its persistent cache).
+  const {
+    watchlist,
+    toggleSaved,
+    save: saveWatchItem,
+    recordProgress,
+    clear: clearWatchlist,
+  } = useWatchlist({ authUser, authReady, onError: setCloudError });
 
   useEffect(() => {
     const preset = THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
@@ -613,108 +527,19 @@ export default function App() {
       const trackedMinutes = pendingSeconds / 60;
       watchTimeSampleRef.current.pendingSeconds = 0;
 
-      if (authUser) {
-        const itemRef = doc(
-          db,
-          'users',
-          authUser.uid,
-          'watchlist',
-          getDocId({ ...selected, media_type: mediaType })
-        );
-
-        setDoc(itemRef, {
-          status: 'watching',
-          progressMinutes,
-          runtimeMinutes,
-          season,
-          episode,
-          totalWatchedMinutes: increment(trackedMinutes),
-          updatedAt: serverTimestamp(),
-        }, { merge: true }).catch((writeError) => {
-          setCloudError(`Playback progress could not sync: ${authErrorMessage(writeError)}`);
-        });
-      } else {
-        setWatchlist((current) => {
-          const exists = current.some((item) =>
-            Number(item.id) === Number(selected.id) &&
-            (item.media_type || 'movie') === mediaType
-          );
-
-          if (exists) {
-            return current.map((item) =>
-              Number(item.id) === Number(selected.id) &&
-              (item.media_type || 'movie') === mediaType
-                ? {
-                    ...item,
-                    status: 'watching',
-                    progressMinutes,
-                    runtimeMinutes,
-                    season,
-                    episode,
-                    totalWatchedMinutes: (Number(item.totalWatchedMinutes) || 0) + trackedMinutes,
-                    updatedAt: Date.now(),
-                  }
-                : item
-            );
-          }
-
-          return [{
-            ...selected,
-            media_type: mediaType,
-            status: 'watching',
-            progressMinutes,
-            runtimeMinutes,
-            season,
-            episode,
-            totalWatchedMinutes: trackedMinutes,
-            updatedAt: Date.now(),
-          }, ...current];
-        });
-      }
+      // Continue Watching updates locally first, then syncs (queued offline).
+      recordProgress(selected, {
+        progressMinutes,
+        runtimeMinutes,
+        season,
+        episode,
+        watchedMinutes: trackedMinutes,
+      });
     }
 
     window.addEventListener('message', handleVideoProgress);
     return () => window.removeEventListener('message', handleVideoProgress);
-  }, [playerOpen, selected, authUser, ratings]);
-
-  useEffect(() => {
-    if (!authReady) return;
-    if (!authUser) {
-      setWatchlist(readWatchlist());
-      setCloudError('');
-      return undefined;
-    }
-
-    setWatchlist([]);
-    setCloudError('');
-    const localItems = readWatchlist();
-    const watchlistRef = collection(db, 'users', authUser.uid, 'watchlist');
-
-    const unsubscribe = onSnapshot(watchlistRef, async (snapshot) => {
-      const cloudItems = snapshot.docs.map((item) => fromFirestoreItem(item.id, item.data()));
-      setWatchlist(cloudItems);
-
-      // Merge local-only items once per account. Existing cloud records always win.
-      if (migratedUid.current !== authUser.uid) {
-        migratedUid.current = authUser.uid;
-        const cloudIds = new Set(snapshot.docs.map((item) => item.id));
-        const missingLocalItems = localItems.filter((item) => !cloudIds.has(getDocId(item)));
-        if (missingLocalItems.length) {
-          try {
-            await Promise.all(missingLocalItems.map((item) =>
-              setDoc(doc(db, 'users', authUser.uid, 'watchlist', getDocId(item)), toFirestoreItem(item))
-            ));
-          } catch (migrationError) {
-            setCloudError(`Some saved titles could not be uploaded: ${authErrorMessage(migrationError)}`);
-          }
-        }
-      }
-    }, (listenerError) => {
-      setCloudError(`Watchlist sync failed: ${authErrorMessage(listenerError)}`);
-    });
-
-    return unsubscribe;
-  }, [authUser, authReady]);
+  }, [playerOpen, selected, ratings, recordProgress]);
 
   // Keep a local backup for every account so ratings survive reloads and cloud outages.
   useEffect(() => {
@@ -746,20 +571,6 @@ export default function App() {
     }, (listenerError) => setCloudError(`Ratings sync failed: ${authErrorMessage(listenerError)}`));
     return unsubscribe;
   }, [authUser, authReady]);
-
-  useEffect(() => {
-    if (!authReady || authUser) return;
-    try {
-      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
-    } catch {
-      setError('Your browser could not save the watchlist. Check available site storage.');
-    }
-  }, [watchlist, authUser, authReady]);
-
-  useEffect(() => {
-    if (!authReady || authUser) return;
-    try { localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); } catch {}
-  }, [ratings, authUser, authReady]);
 
   useEffect(() => {
     if (section === 'Watchlist' || section === 'Watched' || section === 'Search') {
@@ -1137,68 +948,14 @@ useEffect(() => {
     setRatingPrompt(null);
   }
 
+  /** Heart button — optimistic add/remove, shared by every surface. */
   async function toggleWatchlist(movie) {
-    const type = movie.media_type || 'movie';
-    const existing = watchlist.find((item) =>
-      Number(item.id) === Number(movie.id) &&
-      (item.media_type || 'movie') === type
-    );
-    const isActiveWatchlistItem = Boolean(existing && existing.status !== 'completed' && existing.status !== 'dropped');
-    const watchlistItem = {
-      ...(existing || {}),
-      ...movie,
-      media_type: type,
-      status: 'plan_to_watch',
-      totalWatchedMinutes: Number(existing?.totalWatchedMinutes) || 0,
-    };
-
-    if (authUser) {
-      const itemRef = doc(db, 'users', authUser.uid, 'watchlist', getDocId({ ...movie, media_type: type }));
-      try {
-        if (isActiveWatchlistItem) {
-          await deleteDoc(itemRef);
-        } else {
-          await setDoc(itemRef, toFirestoreItem(watchlistItem), { merge: true });
-        }
-        setCloudError('');
-      } catch (writeError) {
-        setCloudError(`Could not update your cloud watchlist: ${authErrorMessage(writeError)}`);
-      }
-      return;
-    }
-
-    setWatchlist((current) => {
-      if (isActiveWatchlistItem) {
-        return current.filter((item) =>
-          !(Number(item.id) === Number(movie.id) &&
-            (item.media_type || 'movie') === type)
-        );
-      }
-      const alreadyExists = current.some((item) =>
-        Number(item.id) === Number(movie.id) &&
-        (item.media_type || 'movie') === type
-      );
-      return alreadyExists
-        ? current.map((item) =>
-            Number(item.id) === Number(movie.id) &&
-            (item.media_type || 'movie') === type
-              ? watchlistItem
-              : item
-          )
-        : [watchlistItem, ...current];
-    });
+    await toggleSaved(movie);
   }
 
   async function removeFromContinueWatching(movie) {
     if (!movie) return;
-    const key = getDocId(movie);
-    const hiddenItem = { ...movie, hideFromContinueWatching: true, updatedAt: Date.now() };
-    if (authUser) {
-      try { await setDoc(doc(db, 'users', authUser.uid, 'watchlist', key), toFirestoreItem(hiddenItem), { merge: true }); setCloudError(''); }
-      catch (writeError) { setCloudError(`Could not hide this title: ${authErrorMessage(writeError)}`); }
-      return;
-    }
-    setWatchlist((current) => current.map((item) => getDocId(item) === key ? hiddenItem : item));
+    await saveWatchItem(movie, { hideFromContinueWatching: true });
   }
 
   async function saveProfileName() {
@@ -1219,20 +976,9 @@ useEffect(() => {
 
   async function setWatchStatus(movie, status) {
     if (!movie) return;
-    const mediaType = movie.media_type || 'movie';
-    const key = getDocId({ ...movie, media_type: mediaType });
-    const existing = watchlist.find((item) => getDocId(item) === key);
-    const updatedItem = { ...(existing || {}), ...movie, media_type: mediaType, status: normalizeWatchStatus(status), updatedAt: Date.now() };
-    if (authUser) {
-      try {
-        await setDoc(doc(db, 'users', authUser.uid, 'watchlist', key), toFirestoreItem(updatedItem), { merge: true });
-        setCloudError('');
-      } catch (writeError) { setCloudError(`Could not update your collection: ${authErrorMessage(writeError)}`); }
-      return;
-    }
-    setWatchlist((current) => current.some((item) => getDocId(item) === key)
-      ? current.map((item) => getDocId(item) === key ? updatedItem : item)
-      : [updatedItem, ...current]);
+    // saveWatchItem normalises the status and upserts, so a title that isn't in
+    // the watchlist yet is added rather than silently ignored.
+    await saveWatchItem(movie, { status });
   }
 
   async function toggleWatched(movie) {
@@ -1306,54 +1052,16 @@ useEffect(() => {
     setDetailLoading(false);
   }
 
+  /** Called when playback starts: flag the title as watching/continue-watching. */
   async function markAsWatching(movie) {
     if (!movie) return;
-    const mediaType = movie.media_type || 'movie';
-    const existing = watchlist.find((item) =>
-      Number(item.id) === Number(movie.id) && (item.media_type || 'movie') === mediaType
-    );
-
-    if (authUser) {
-      const itemRef = doc(db, 'users', authUser.uid, 'watchlist', getDocId({ ...movie, media_type: mediaType }));
-      try {
-        if (existing) {
-          await setDoc(itemRef, {
-            status: 'watching',
-            hideFromContinueWatching: false,
-            updatedAt: serverTimestamp(),
-          }, { merge: true });
-        } else {
-          await setDoc(itemRef, toFirestoreItem({
-            ...movie,
-            media_type: mediaType,
-            status: 'watching',
-            progressMinutes: 0,
-          }));
-        }
-        setCloudError('');
-      } catch (writeError) {
-        setCloudError(`Could not update your cloud watchlist: ${authErrorMessage(writeError)}`);
-      }
-      return;
-    }
-
-    setWatchlist((current) => {
-      const found = current.some((item) =>
-        Number(item.id) === Number(movie.id) && (item.media_type || 'movie') === mediaType
-      );
-      if (found) {
-        return current.map((item) =>
-          Number(item.id) === Number(movie.id) && (item.media_type || 'movie') === mediaType
-            ? { ...item, status: 'watching', hideFromContinueWatching: false }
-            : item
-        );
-      }
-      return [{
-        ...movie,
-        media_type: mediaType,
-        status: 'watching',
-        progressMinutes: 0,
-      }, ...current];
+    const existing = watchlist.find((item) => getDocId(item) === getDocId(movie));
+    await saveWatchItem(movie, {
+      status: 'watching',
+      hideFromContinueWatching: false,
+      // Only seed progress for a title we haven't tracked yet — never reset an
+      // existing resume position back to zero.
+      ...(existing ? {} : { progressMinutes: 0 }),
     });
   }
 
@@ -1468,8 +1176,15 @@ useEffect(() => {
   }
 
   async function handleSignOut() {
+    // Clear the local backups *before* auth flips. They are a guest-only
+    // fallback, but the sign-in migration uploads any local title/rating the
+    // cloud account doesn't have — so leaving them behind handed the next
+    // account that signed in on this browser the previous user's library.
+    clearLocalLibraryBackup();
     try {
       await signOut(auth);
+      clearWatchlist();
+      setRatings({});
       setAuthOpen(false);
     } catch (signOutError) {
       setAuthError(authErrorMessage(signOutError));
@@ -1521,14 +1236,14 @@ useEffect(() => {
       const reviews=await getDocs(firestoreQuery(collection(db,'reviews'),where('uid','==',authUser.uid)));
       await Promise.all(reviews.docs.map((entry)=>deleteDoc(entry.ref)));
       await deleteDoc(doc(db,'profiles',authUser.uid));
-      localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);
-      await deleteUser(authUser);setWatchlist([]);setRatings({});goToSection('Home');
+      clearLocalLibraryBackup();
+      await deleteUser(authUser);clearWatchlist();setRatings({});goToSection('Home');
     }catch(failure){setAuthError(failure?.message==='Account deletion cancelled. Your data was not changed.'?failure.message:failure?.code==='auth/wrong-password'?'Password was incorrect. No data was deleted.':authErrorMessage(failure));}
     finally{setAuthBusy(false);}
   }
   function clearGuestData(){
     if(!window.confirm('Clear this browser’s Moovie watchlist and ratings?'))return;
-    localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);setWatchlist([]);setRatings({});
+    clearLocalLibraryBackup();clearWatchlist();setRatings({});
   }
 
   const continueWatchingItems = useMemo(() => {
