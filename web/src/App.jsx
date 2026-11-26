@@ -254,7 +254,9 @@ function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRa
   </div>
   <div className="profile-section-grid">
    <section className="profile-panel"><div className="section-heading"><div><span className="eyebrow">YOUR TASTE</span><h2>Favourite genre</h2></div><Heart size={18}/></div><strong className="profile-favourite-genre">{stats.favoriteGenre||'Not enough history yet'}</strong><p>Based on genres attached to titles in your collection.</p></section>
-   <section className="profile-panel"><div className="section-heading"><div><span className="eyebrow">YOUR COLLECTION</span><h2>Watchlist breakdown</h2></div><Bookmark size={18}/></div><div className="profile-breakdown"><span>Watching <strong>{stats.watching}</strong></span><span>Plan to Watch <strong>{stats.planToWatch}</strong></span><span>Completed <strong>{stats.completed}</strong></span><span>Dropped <strong>{stats.dropped}</strong></span></div></section>
+   <section className="profile-panel"><div className="section-heading"><div><span className="eyebrow">YOUR COLLECTION</span><h2>Watchlist breakdown</h2></div><Bookmark size={18}/></div><div className="profile-breakdown">
+    {[[ 'Watching', stats.watching ], [ 'Plan to Watch', stats.planToWatch ], [ 'Completed', stats.completed ], [ 'Dropped', stats.dropped ]].map(([label, count]) => <div className="profile-breakdown-item" key={label}><div className="profile-breakdown-row"><span>{label}</span><strong>{count}</strong></div><div className="profile-breakdown-track"><i style={{ width: (stats.collectionCount ? count / stats.collectionCount * 100 : 0) + '%' }} /></div></div>)}
+   </div></section>
   </div>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR LATEST ACTIVITY</span><h2>Recently watched</h2></div><span className="result-count">{recentlyWatched.length} TITLES</span></div>{recentlyWatched.length?<div className="movie-grid profile-movie-grid">{recentlyWatched.map(movie=><PosterCard key={getDocId(movie)} movie={movie} onSelect={onOpenTitle}/>)}</div>:<div className="status-message">Your recently watched titles will appear here as you play or complete something.</div>}</section>
   <section className="profile-content-section"><div className="section-heading"><div><span className="eyebrow">YOUR HIGHEST RATINGS</span><h2>Titles you loved</h2></div><span className="result-count">{stats.ratingCount} RATED</span></div>{topRatedTitles.length?<div className="movie-grid profile-movie-grid">{topRatedTitles.map(movie=><div className="profile-rated-item" key={getDocId(movie)}><PosterCard movie={movie} onSelect={onOpenTitle}/><span><Star size={12} fill="currentColor"/> {stats.ratings[getDocId(movie)]}/6</span></div>)}</div>:<div className="status-message">Rate titles out of six stars to build your favourites shelf.</div>}</section>
@@ -1259,6 +1261,7 @@ useEffect(() => {
     .forEach((item)=>(item.genre_ids||[]).forEach((id)=>genreTotals.set(Number(id),(genreTotals.get(Number(id))||0)+1)));
   const favouriteGenreId=[...genreTotals.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0];
   const profileStats={
+    collectionCount:watchlist.length,
     watchHours:(watchlist.reduce((sum,item)=>sum+(Number(item.totalWatchedMinutes)||0),0)/60).toFixed(1),
     moviesCompleted:watchlist.filter((item)=>item.status==='completed'&&item.media_type!=='tv').length,
     seriesCompleted:watchlist.filter((item)=>item.status==='completed'&&item.media_type==='tv').length,
@@ -1299,6 +1302,19 @@ useEffect(() => {
     if(!window.confirm('Clear this browser’s Moovie watchlist and ratings?'))return;
     localStorage.removeItem(WATCHLIST_KEY);localStorage.removeItem(RATINGS_KEY);setWatchlist([]);setRatings({});
   }
+
+  const continueWatchingItems = useMemo(() => {
+    const timestamp = (value) => {
+      if (value?.toMillis) return value.toMillis();
+      if (value?.seconds) return value.seconds * 1000;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+    return watchlist
+      .filter((item) => item.status !== 'completed' && item.status !== 'dropped' &&
+        (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0))
+      .sort((a, b) => timestamp(b.updatedAt || b.addedAt) - timestamp(a.updatedAt || a.addedAt));
+  }, [watchlist]);
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -1424,40 +1440,38 @@ useEffect(() => {
 })()}
 
 
-        {section === 'Home' && !query && watchlist.some((item) =>
-          item.status !== 'completed' && item.status !== 'dropped' &&
-          (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0)
-        ) && <section className="continue-section">
+        {section === 'Home' && !query && continueWatchingItems.length > 0 && <section className="continue-section">
           <div className="section-heading">
             <div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Continue watching</h2></div>
-            <span className="result-count">{watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0)).length} TITLES</span>
+            <span className="result-count">{Math.min(continueWatchingItems.length, 8)} OF {continueWatchingItems.length} TITLES</span>
           </div>
           <div className="continue-grid">
-            {watchlist.filter((item) => item.status !== 'completed' && item.status !== 'dropped' && (item.media_type === 'tv' || item.status === 'watching' || Number(item.progressMinutes) > 0))
-              .map((item) => {
-                const runtime = Number(item.runtimeMinutes) || 0;
-                const progress = Number(item.progressMinutes) || 0;
-                const percent = runtime > 0 ? Math.min(100, Math.max(0, (progress / runtime) * 100)) : 0;
-                const title = item.title || item.name || 'Untitled';
-                return <button className="continue-card" key={`${item.media_type || 'movie'}-${item.id}`} onClick={() => openPlayer(item)} style={{ '--continue-backdrop': item.backdrop_path ? `url(${IMAGE_ROOT}w780${item.backdrop_path})` : 'none' }}>
-                  <div className="continue-poster">
-                    {item.poster_path
-                      ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
-                      : <div className="poster-fallback"><Film size={25} /></div>}
-                    <span className="continue-play"><Play size={17} fill="currentColor" /></span>
-                  </div>
-                  <div className="continue-info">
-                    <strong>{title}</strong>
-                    <span>{item.media_type === 'tv'
-                      ? `SEASON ${item.season || 1} · EPISODE ${item.episode || 1}`
-                      : runtime > 0 && progress > 0 ? `${progress} OF ${runtime} MIN` : 'IN PROGRESS'}</span>
-                    <div className="continue-progress"><i style={{ width: `${percent}%` }} /></div>
-                  </div>
-                </button>;
-              })}
+            {continueWatchingItems.slice(0, 8).map((item) => {
+              const runtime = Number(item.runtimeMinutes) || 0;
+              const progress = Math.max(0, Number(item.progressMinutes) || 0);
+              const percent = runtime > 0 ? Math.min(100, Math.max(0, (progress / runtime) * 100)) : 0;
+              const title = item.title || item.name || 'Untitled';
+              const remaining = runtime > 0 && progress > 0 ? Math.max(0, runtime - progress) : 0;
+              const progressLabel = item.media_type === 'tv'
+                ? 'S' + String(item.season || 1).padStart(2, '0') + ' · E' + String(item.episode || 1).padStart(2, '0')
+                : remaining > 0 ? remaining + ' MIN LEFT' : 'READY TO RESUME';
+              return <button className="continue-card" key={(item.media_type || 'movie') + '-' + item.id} onClick={() => openPlayer(item)} aria-label={'Resume ' + title} style={{ '--continue-backdrop': item.backdrop_path ? 'url(' + IMAGE_ROOT + 'w780' + item.backdrop_path + ')' : 'none' }}>
+                <div className="continue-poster">
+                  {item.poster_path
+                    ? <img src={IMAGE_ROOT + 'w342' + item.poster_path} alt="" loading="lazy" />
+                    : <div className="poster-fallback"><Film size={25} /></div>}
+                  <span className="continue-play"><Play size={17} fill="currentColor" /></span>
+                </div>
+                <div className="continue-info">
+                  <strong>{title}</strong>
+                  <span>{progressLabel}</span>
+                  <div className="continue-progress"><i style={{ width: percent + '%' }} /></div>
+                  <small className="continue-progress-caption">{runtime > 0 ? Math.round(percent) + '% watched' : item.media_type === 'tv' ? 'Episode saved' : 'Progress saved'}</small>
+                </div>
+              </button>;
+            })}
           </div>
         </section>}
-
         {section === 'Home' && !query && <>
           <PosterRow
             eyebrow="TOP RATED SERIES"
