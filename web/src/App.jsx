@@ -274,7 +274,7 @@ function ProfileDashboard({ authUser, accountName, stats, recentlyWatched, topRa
  </section>;
 }
 
-export default function SettingsPage({ authUser, accountName, profileAvatar, profileNameDraft, onProfileNameChange, onSaveProfileName, profileSaveBusy, onChooseAvatar, onSignOut, onSignIn, onDeleteAccount, onClearGuestData, authError, authBusy, themeId, setThemeId }) {
+function SettingsPage({ authUser, accountName, profileAvatar, profileNameDraft, onProfileNameChange, onSaveProfileName, profileSaveBusy, onChooseAvatar, onSignOut, onSignIn, onDeleteAccount, onClearGuestData, authError, authBusy, themeId, setThemeId }) {
   const [settingsTab, setSettingsTab] = useState('profile');
   const settingsTabs = [
     { id: 'profile', label: 'Profile', icon: UserRound },
@@ -339,7 +339,7 @@ export default function SettingsPage({ authUser, accountName, profileAvatar, pro
   </section>;
 }
 
-function App() {
+export default function App() {
   const [section, setSection] = useState('Home');
   const [themeId, setThemeId] = useState(() => localStorage.getItem('moovie-theme-v1') || 'solar-gold');
   const [watchlistFilter, setWatchlistFilter] = useState('all');
