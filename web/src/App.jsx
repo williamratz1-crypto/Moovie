@@ -72,13 +72,13 @@ const SEARCH_COUNTRIES = [
   { code: 'TH', name: 'Thailand' }, { code: 'SE', name: 'Sweden' },
 ];
 
-const ZXCSTREAM_PLAYER_ROOT = 'https://zxcstream.cc/player';
+const VIDFAST_PLAYER_ROOT = 'https://vidfast.vc';
 
 // Playback sources. Vidstuck is listed first and is the default everywhere
 // buildPlayerUrl() is called without an explicit provider.
 const PLAYER_PROVIDERS = [
   { id: 'vidstuck', label: 'Vidstuck' },
-  { id: 'zxcstream', label: 'ZXCStream' },
+  { id: 'vidfast', label: 'VidFast' },
 ];
 
 const clampEpisodeNumber = (value) => Math.max(1, Math.floor(Number(value) || 1));
@@ -99,14 +99,14 @@ function buildVidstuckUrl(movie) {
 }
 
 /**
- * https://zxcstream.cc/player/movie/{id}
- * https://zxcstream.cc/player/tv/{id}/{season}/{episode}
+ * https://vidfast.vc/movie/{id}
+ * https://vidfast.vc/tv/{id}/{season}/{episode}
  *
  * Every segment is a validated integer appended to a fixed origin, so a bad
  * id can only ever produce '' (callers fall back to the default player) — it
  * cannot inject a path or a different host.
  */
-function buildZxcStreamUrl(movie) {
+function buildVidFastUrl(movie) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
@@ -115,12 +115,12 @@ function buildZxcStreamUrl(movie) {
   if (mediaType === 'tv') {
     const season = clampEpisodeNumber(movie?.season);
     const episode = clampEpisodeNumber(movie?.episode);
-    return `${ZXCSTREAM_PLAYER_ROOT}/tv/${numericId}/${season}/${episode}`;
+    return `${VIDFAST_PLAYER_ROOT}/tv/${numericId}/${season}/${episode}`;
   }
-  return `${ZXCSTREAM_PLAYER_ROOT}/movie/${numericId}`;
+  return `${VIDFAST_PLAYER_ROOT}/movie/${numericId}`;
 }
 
-const PLAYER_URL_BUILDERS = { vidstuck: buildVidstuckUrl, zxcstream: buildZxcStreamUrl };
+const PLAYER_URL_BUILDERS = { vidstuck: buildVidstuckUrl, vidfast: buildVidFastUrl };
 
 function buildPlayerUrl(movie, provider = 'vidstuck') {
   const build = PLAYER_URL_BUILDERS[provider] || PLAYER_URL_BUILDERS.vidstuck;
@@ -339,11 +339,12 @@ export default function App() {
   const [playerSeason, setPlayerSeason] = useState(1);
   const [playerEpisode, setPlayerEpisode] = useState(1);
   const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
-  // Chosen playback source. Anything other than an explicit ZXCStream choice
-  // (including a blocked/absent localStorage) resolves to the Vidstuck default.
+  // Chosen playback source. Anything other than an explicit VidFast choice
+  // (including a blocked/absent localStorage, or a stale value left behind by
+  // the removed ZXCStream option) resolves to the Vidstuck default.
   const [playerProvider, setPlayerProvider] = useState(() => {
     try {
-      return localStorage.getItem('moovie-player-provider-v1') === 'zxcstream' ? 'zxcstream' : 'vidstuck';
+      return localStorage.getItem('moovie-player-provider-v1') === 'vidfast' ? 'vidfast' : 'vidstuck';
     } catch { return 'vidstuck'; }
   });
   const [playerFrameLoaded, setPlayerFrameLoaded] = useState(false);

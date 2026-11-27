@@ -243,7 +243,7 @@
 .player-episode-selects { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .player-episode-selects select:disabled { opacity: .55; cursor: default; }
 
-/* ---- Player source selector (Vidstuck / ZXCStream) ---- */
+/* ---- Player source selector (Vidstuck / VidFast) ---- */
 .player-provider-switch {
   flex: 0 0 auto;
   margin-left: auto;
