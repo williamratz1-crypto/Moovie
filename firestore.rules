@@ -22,6 +22,12 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
+    // Which player (Vidstuck / VidFast) each title was last played with.
+    // One document per title+media type, e.g. movie-550 / tv-1399.
+    match /users/{uid}/providerPrefs/{docId} {
+      allow read, write: if isOwner(uid);
+    }
+
     match /users/{uid}/following/{targetUid} {
       allow read, write: if isOwner(uid);
     }
