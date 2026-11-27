@@ -122,6 +122,84 @@ function buildVidFastUrl(movie) {
 
 const PLAYER_URL_BUILDERS = { vidstuck: buildVidstuckUrl, vidfast: buildVidFastUrl };
 
+// The only origins allowed to drive playback state. Anything else is ignored
+// even if it reaches the window.
+const PLAYER_ORIGINS = {
+  'https://vidstuck.cc': 'vidstuck',
+  'https://vidfast.vc': 'vidfast',
+};
+
+/**
+ * Normalises a message from either player into one shape, or returns null.
+ *
+ * Vidstuck:  { type: 'VIDEO_PROGRESS', payload: { media_type, tmdbId, currentTime, duration, season, episode } }
+ * VidFast:   { type: 'PLAYER_EVENT', data: { event, currentTime, duration, tmdbId, mediaType, season, episode, playing } }
+ *
+ * The two dialects are deliberately kept separate: VidFast does not speak
+ * VIDEO_PROGRESS and its payload is not read as one.
+ */
+function readPlaybackEvent(message, activeTitle) {
+  if (!message || typeof message !== 'object' || Array.isArray(message)) return null;
+  if (!activeTitle) return null;
+
+  let mediaType;
+  let tmdbId;
+  let currentTime;
+  let duration;
+  let season;
+  let episode;
+  let eventName = '';
+
+  if (message.type === 'VIDEO_PROGRESS') {
+    const payload = message.payload;
+    if (!payload || typeof payload !== 'object') return null;
+    mediaType = payload.media_type === 'tv' ? 'tv' : 'movie';
+    tmdbId = payload.tmdbId;
+    currentTime = payload.currentTime;
+    duration = payload.duration;
+    season = payload.season;
+    episode = payload.episode;
+  } else if (message.type === 'PLAYER_EVENT') {
+    const data = message.data;
+    if (!data || typeof data !== 'object') return null;
+    mediaType = data.mediaType === 'tv' ? 'tv' : 'movie';
+    tmdbId = data.tmdbId;
+    currentTime = data.currentTime;
+    duration = data.duration;
+    season = data.season;
+    episode = data.episode;
+    eventName = typeof data.event === 'string' ? data.event.toLowerCase() : '';
+  } else {
+    return null;
+  }
+
+  // The message must be about the title that is actually open, as the same
+  // type — a stale frame or a mismatched id must never write progress.
+  const activeType = activeTitle.media_type === 'tv' ? 'tv' : 'movie';
+  if (Number(tmdbId) !== Number(activeTitle.id)) return null;
+  if (mediaType !== activeType) return null;
+
+  const position = Number(currentTime);
+  const total = Number(duration);
+  if (!Number.isFinite(position) || !Number.isFinite(total)) return null;
+  if (position < 0 || total <= 0) return null;
+  if (position > total * 1.05) return null; // nonsense position, ignore it
+
+  const seasonNumber = mediaType === 'tv' ? Math.max(1, Math.floor(Number(season) || 1)) : null;
+  const episodeNumber = mediaType === 'tv' ? Math.max(1, Math.floor(Number(episode) || 1)) : null;
+
+  return {
+    mediaType,
+    position,
+    total,
+    season: seasonNumber,
+    episode: episodeNumber,
+    eventName,
+    paused: eventName === 'pause',
+    ended: eventName === 'ended' || eventName === 'complete' || eventName === 'completed',
+  };
+}
+
 function buildPlayerUrl(movie, provider = 'vidstuck') {
   const build = PLAYER_URL_BUILDERS[provider] || PLAYER_URL_BUILDERS.vidstuck;
   return build(movie);
@@ -526,15 +604,39 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [playerOpen, playerSrc]);
 
-  // Receive playback progress messages sent by the Vidstuck iframe.
+  // Receive playback progress from whichever player is active.
+  // Vidstuck reports VIDEO_PROGRESS, VidFast reports PLAYER_EVENT; both are
+  // normalised by readPlaybackEvent and persisted through the same
+  // recordProgress path, so Continue Watching and the watchlist schema are
+  // unchanged.
   useEffect(() => {
     if (!playerOpen || !selected) return undefined;
+
+    const activeTitle = { id: selected.id, media_type: selected.media_type || 'movie' };
+    // Latest sample that has not reached the store yet. Buffering means the
+    // final position survives a throttled tick when the player closes.
+    let pendingSample = null;
+
+    function persist(sample) {
+      if (!sample) return;
+      const watchedMinutes = watchTimeSampleRef.current.key === sample.key
+        ? watchTimeSampleRef.current.pendingSeconds / 60
+        : 0;
+      if (watchTimeSampleRef.current.key === sample.key) watchTimeSampleRef.current.pendingSeconds = 0;
+      recordProgress(sample.movie, { ...sample.progress, watchedMinutes });
+    }
+
+    function flush() {
+      const sample = pendingSample;
+      pendingSample = null;
+      persist(sample);
+    }
 
     function handleVideoProgress(event) {
       const frame = playerFrameRef.current;
 
-      // Reject messages from any origin or frame other than the active player.
-      if (event.origin !== 'https://vidstuck.cc') return;
+      // Only the two trusted origins, and only the frame we mounted.
+      if (!PLAYER_ORIGINS[event.origin]) return;
       if (!frame || event.source !== frame.contentWindow) return;
 
       let message = event.data;
@@ -546,74 +648,80 @@ export default function App() {
         }
       }
 
-      if (message?.type !== 'VIDEO_PROGRESS' || !message.payload) return;
+      const sample = readPlaybackEvent(message, activeTitle);
+      if (!sample) {
+        // A pause we can't read a position from still deserves the last known
+        // position to be written.
+        if (message?.type === 'PLAYER_EVENT' && message?.data?.event === 'pause') flush();
+        return;
+      }
 
-      const payload = message.payload;
-      const mediaType = payload.media_type === 'tv' ? 'tv' : 'movie';
-
-      if (
-        Number(payload.tmdbId) !== Number(selected.id) ||
-        mediaType !== (selected.media_type || 'movie')
-      ) return;
-
-      const currentTime = Number(payload.currentTime);
-      const duration = Number(payload.duration);
-
-      if (
-        !Number.isFinite(currentTime) ||
-        !Number.isFinite(duration) ||
-        currentTime < 0 ||
-        duration <= 0
-      ) return;
-
-      const key = `${mediaType}-${selected.id}`;
-      const previousSample = watchTimeSampleRef.current;
-      let pendingSeconds = previousSample.key === key ? previousSample.pendingSeconds : 0;
-      if (previousSample.key === key) {
-        const elapsed = currentTime - previousSample.currentTime;
+      // Seconds genuinely watched: a seek jumps far more than 15s, so a scrub
+      // is not counted. This is what keeps the completion prompt honest.
+      const key = `${sample.mediaType}-${activeTitle.id}`;
+      const previous = watchTimeSampleRef.current;
+      let pendingSeconds = previous.key === key ? previous.pendingSeconds : 0;
+      if (previous.key === key) {
+        const elapsed = sample.position - previous.currentTime;
         if (elapsed > 0 && elapsed <= 15) pendingSeconds += elapsed;
       }
-      watchTimeSampleRef.current = { key, currentTime, pendingSeconds };
-      const completionKey = `${mediaType}-${selected.id}`;
-      const isMovieComplete = mediaType === 'movie' && currentTime / duration >= 0.95;
+      watchTimeSampleRef.current = { key, currentTime: sample.position, pendingSeconds };
+
+      pendingSample = {
+        key,
+        movie: selected,
+        progress: {
+          progressMinutes: Math.round((sample.position / 60) * 10) / 10,
+          runtimeMinutes: Math.round(sample.total / 60),
+          season: sample.season,
+          episode: sample.episode,
+        },
+      };
+
+      // Completion: an explicit `ended`, or >=95% with real playback behind it.
       const finalEpisode = selected.last_episode_to_air;
-      const isFinalTvEpisode = mediaType === 'tv' && finalEpisode &&
-        Number(payload.season) === Number(finalEpisode.season_number) &&
-        Number(payload.episode) === Number(finalEpisode.episode_number) && currentTime / duration >= 0.95;
-      if ((isMovieComplete || isFinalTvEpisode) && !ratings[completionKey] && !completionPromptedRef.current.has(completionKey)) {
-        completionPromptedRef.current.add(completionKey);
-        setRatingPrompt({ ...selected, media_type: mediaType });
+      const isFinalTvEpisode = sample.mediaType === 'tv' && finalEpisode &&
+        sample.season === Number(finalEpisode.season_number) &&
+        sample.episode === Number(finalEpisode.episode_number);
+      const nearEnd = sample.position / sample.total >= 0.95;
+      const watchedEnough = pendingSeconds >= 90 || sample.total <= 180;
+      const complete = sample.ended || (nearEnd && watchedEnough);
+
+      if (
+        complete &&
+        (sample.mediaType === 'movie' || isFinalTvEpisode) &&
+        !ratings[key] &&
+        !completionPromptedRef.current.has(key)
+      ) {
+        completionPromptedRef.current.add(key);
+        flush(); // save the final position before the player goes away
+        setRatingPrompt({ ...selected, media_type: sample.mediaType });
         closePlayer();
+        return;
       }
 
-      const progressMinutes = Math.round((currentTime / 60) * 10) / 10;
-      const runtimeMinutes = Math.round(duration / 60);
-      const season = mediaType === 'tv' ? Number(payload.season) || 1 : null;
-      const episode = mediaType === 'tv' ? Number(payload.episode) || 1 : null;
+      const bucket = Math.floor(sample.position / 10);
+      const sameBucket = lastProgressSaveRef.current.key === key &&
+        lastProgressSaveRef.current.bucket === bucket;
 
-      // Avoid a Firestore write every second: save once per 10 seconds watched.
-      const bucket = Math.floor(currentTime / 10);
-      if (
-        lastProgressSaveRef.current.key === key &&
-        lastProgressSaveRef.current.bucket === bucket
-      ) return;
-      lastProgressSaveRef.current = { key, bucket };
-      const trackedMinutes = pendingSeconds / 60;
-      watchTimeSampleRef.current.pendingSeconds = 0;
-
-      // Continue Watching updates locally first, then syncs (queued offline).
-      recordProgress(selected, {
-        progressMinutes,
-        runtimeMinutes,
-        season,
-        episode,
-        watchedMinutes: trackedMinutes,
-      });
+      // Pause and `ended` save immediately; routine ticks save once per 10s.
+      if (sample.paused || sample.ended || !sameBucket) {
+        lastProgressSaveRef.current = { key, bucket };
+        flush();
+      }
     }
 
     window.addEventListener('message', handleVideoProgress);
-    return () => window.removeEventListener('message', handleVideoProgress);
-  }, [playerOpen, selected, ratings, recordProgress]);
+    return () => {
+      window.removeEventListener('message', handleVideoProgress);
+      // Closing the player, switching providers or changing episodes must not
+      // drop the last few seconds.
+      flush();
+    };
+    // playerSrc is in the deps so switching provider, season or episode tears
+    // the listener down and flushes the pending sample for the episode that
+    // was just playing.
+  }, [playerOpen, playerSrc, selected, ratings, recordProgress]);
 
   // Keep a local backup for every account so ratings survive reloads and cloud outages.
   useEffect(() => {
