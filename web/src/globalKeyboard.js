@@ -6,13 +6,15 @@
  *   Cmd/Ctrl + K  → focus the topbar search input and select all text,
  *                    so typing immediately replaces the current query.
  *   Escape        → close the topmost open overlay, in priority order:
- *                    player > rating prompt > trailer > auth > detail page.
+ *                    server chooser > player > rating prompt > trailer >
+ *                    auth > detail page.
  *
  * Escape handling only runs when the player is NOT open, because
  * App.jsx already installs its own Escape handler for the player.
  */
 
 const OVERLAY_SELECTORS = [
+  '.provider-backdrop',
   '.rating-prompt-backdrop',
   '.trailer-backdrop',
   '.auth-backdrop',

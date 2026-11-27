@@ -19,6 +19,8 @@ import { auth, db, googleProvider } from './firebase';
 import { authErrorMessage } from './messages';
 import { RATINGS_KEY, clearLocalLibraryBackup, getDocId, readRatings } from './library';
 import { useWatchlist } from './useWatchlist';
+import { useProviderPreferences } from './providerPrefs';
+import { ProviderSwitch } from './ProviderSwitch';
 import { useReveal } from './useReveal';
 import './auth.css';
 import './player.css';
@@ -417,14 +419,14 @@ export default function App() {
   const [playerSeason, setPlayerSeason] = useState(1);
   const [playerEpisode, setPlayerEpisode] = useState(1);
   const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
-  // Chosen playback source. Anything other than an explicit VidFast choice
-  // (including a blocked/absent localStorage, or a stale value left behind by
-  // the removed ZXCStream option) resolves to the Vidstuck default.
-  const [playerProvider, setPlayerProvider] = useState(() => {
-    try {
-      return localStorage.getItem('moovie-player-provider-v1') === 'vidfast' ? 'vidfast' : 'vidstuck';
-    } catch { return 'vidstuck'; }
-  });
+  // Chosen playback source for the title currently in the player. The saved
+  // preference is per title (see providerPrefs.js); this is only the live
+  // value while the player is open, so it always starts at the default and is
+  // set from the stored preference before playback begins.
+  const [playerProvider, setPlayerProvider] = useState('vidstuck');
+  // Title waiting for a first-time server choice. Nothing plays until the user
+  // picks, and the pick is what gets saved for that title.
+  const [providerPrompt, setProviderPrompt] = useState(null);
   const [playerFrameLoaded, setPlayerFrameLoaded] = useState(false);
   const [playerFrameSlow, setPlayerFrameSlow] = useState(false);
   const playerHistoryRef = useRef(false);
@@ -436,6 +438,7 @@ export default function App() {
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
+  const playerOpenRequestRef = useRef(false);
 
   const providerLabel = (PLAYER_PROVIDERS.find((provider) => provider.id === playerProvider) || PLAYER_PROVIDERS[0]).label;
   const playerSrc = selected
@@ -468,6 +471,14 @@ export default function App() {
     recordProgress,
     clear: clearWatchlist,
   } = useWatchlist({ authUser, authReady, onError: setCloudError });
+
+  // Per-title player preference: Firestore for signed-in users, localStorage
+  // for guests. Same optimistic shape as the watchlist above.
+  const { getProvider, setProvider, waitForLoaded: waitForProviderPrefs } = useProviderPreferences({
+    authUser,
+    authReady,
+    onError: setCloudError,
+  });
 
   useEffect(() => {
     const preset = THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
@@ -586,11 +597,6 @@ export default function App() {
     window.addEventListener('keydown', handlePlayerKeys);
     return () => window.removeEventListener('keydown', handlePlayerKeys);
   }, [playerOpen]);
-
-  // Remember the last source the user picked (defaults to Vidstuck).
-  useEffect(() => {
-    try { localStorage.setItem('moovie-player-provider-v1', playerProvider); } catch {}
-  }, [playerProvider]);
 
   // Reset load state whenever the player or its source changes. A cross-origin
   // frame that refuses to be embedded cannot be detected from here — some
@@ -1250,6 +1256,9 @@ useEffect(() => {
     });
   }
 
+  // Every entry point (Watch Now, hero, Continue Watching, detail page) lands
+  // here. The provider is decided before the player opens: a saved preference
+  // is used silently, and a title with no preference gets the chooser.
   async function openPlayer(movieToPlay = selected) {
     if (playerOpen || !movieToPlay) return;
 
@@ -1259,6 +1268,47 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
+    // Wait for the stored preferences so a click during the initial read
+    // doesn't look like a title the user has never chosen a server for.
+    if (playerOpenRequestRef.current) return;
+    playerOpenRequestRef.current = true;
+    await waitForProviderPrefs();
+    playerOpenRequestRef.current = false;
+
+    const savedProvider = getProvider(playableMovie);
+    if (!savedProvider) {
+      setProviderPrompt(playableMovie);
+      return;
+    }
+
+    setPlayerProvider(savedProvider);
+    startPlayback(playableMovie);
+  }
+
+  // First-time choice: save it for this title, then play with it. There is no
+  // follow-up prompt — the choice the user just made is the saved preference.
+  function chooseInitialProvider(provider) {
+    const movie = providerPrompt;
+    if (!movie) return;
+    setProviderPrompt(null);
+    setPlayerProvider(provider);
+    void setProvider(movie, provider);
+    startPlayback(movie);
+  }
+
+  // In-player switch: same title, same episode, different server. The saved
+  // preference is updated immediately, and the progress effect flushes the
+  // pending sample because playerSrc changes (so the position is written
+  // before the new frame starts loading). Neither provider exposes a start
+  // position parameter we can rely on, so playback resumes at 00:00 and the
+  // user picks up manually.
+  function switchProvider(provider) {
+    if (!selected || provider === playerProvider) return;
+    setPlayerProvider(provider);
+    void setProvider(selected, provider);
+  }
+
+  function startPlayback(playableMovie) {
     setPlayerSeason(Math.max(1, Math.floor(Number(playableMovie.season) || 1)));
     setPlayerEpisode(Math.max(1, Math.floor(Number(playableMovie.episode) || 1)));
     if (playableMovie.media_type === 'tv') {
@@ -1778,6 +1828,26 @@ useEffect(() => {
         </section>
       </div>}
 
+      {providerPrompt && <div className="modal-backdrop provider-backdrop" role="dialog" aria-modal="true" aria-labelledby="provider-prompt-title" onClick={() => setProviderPrompt(null)}>
+        <section className="provider-modal" onClick={(event) => event.stopPropagation()}>
+          <button className="modal-close" onClick={() => setProviderPrompt(null)} aria-label="Cancel"><X size={20} /></button>
+          <span className="eyebrow">CHOOSE A PLAYER</span>
+          <h2 id="provider-prompt-title">{providerPrompt.title || providerPrompt.name || 'This title'}</h2>
+          <p className="provider-modal-copy">
+            Pick the server to start with. Moovie remembers it for this {providerPrompt.media_type === 'tv' ? 'series' : 'film'} only, and you can switch anytime from the player.
+          </p>
+          <div className="provider-choices">
+            {PLAYER_PROVIDERS.map((provider, index) => (
+              <button key={provider.id} type="button" autoFocus={index === 0} onClick={() => chooseInitialProvider(provider.id)}>
+                <strong>{provider.label}</strong>
+                <span>{provider.id === 'vidstuck' ? 'ORIGINAL SOURCE' : 'ALTERNATIVE SOURCE'}</span>
+              </button>
+            ))}
+          </div>
+          <button className="provider-cancel" type="button" onClick={() => setProviderPrompt(null)}>Not now</button>
+        </section>
+      </div>}
+
       {ratingPrompt && <div className="rating-prompt-backdrop" role="dialog" aria-modal="true" aria-label="Rate completed title">
         <section className="rating-prompt-card">
           <span className="eyebrow">YOU FINISHED WATCHING</span>
@@ -1823,20 +1893,12 @@ useEffect(() => {
                 </label>
               </div>
             )}
-            <div className="player-provider-switch" role="group" aria-label="Player source">
-              {PLAYER_PROVIDERS.map((provider) => (
-                <button
-                  key={provider.id}
-                  type="button"
-                  className={playerProvider === provider.id ? 'active' : ''}
-                  aria-pressed={playerProvider === provider.id}
-                  onClick={() => setPlayerProvider(provider.id)}
-                  title={`Play with ${provider.label}`}
-                >
-                  {provider.label}
-                </button>
-              ))}
-            </div>
+            <ProviderSwitch
+              value={playerProvider}
+              label={providerLabel}
+              options={PLAYER_PROVIDERS}
+              onChange={switchProvider}
+            />
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
@@ -1858,7 +1920,7 @@ useEffect(() => {
                 <div className="player-notice-actions">
                   <a href={playerSrc} target="_blank" rel="noreferrer noopener">Open in a new tab</a>
                   {playerProvider !== 'vidstuck' && (
-                    <button type="button" onClick={() => setPlayerProvider('vidstuck')}>Switch back to Vidstuck</button>
+                    <button type="button" onClick={() => switchProvider('vidstuck')}>Switch back to Vidstuck</button>
                   )}
                 </div>
               </div>
@@ -1867,7 +1929,6 @@ useEffect(() => {
           <div className="player-footer">
             <span>MOOVIE PLAYER</span>
             <a className="player-source-link" href={playerSrc} target="_blank" rel="noreferrer noopener">OPEN IN NEW TAB ↗</a>
-            {playerProvider !== 'vidstuck' && <span className="player-progress-note">PROGRESS NOT TRACKED ON THIS SOURCE</span>}
             <label className="player-aspect-control">
               <span>ASPECT</span>
               <select aria-label="Player aspect ratio" value={playerAspectRatio} onChange={(event) => setPlayerAspectRatio(event.target.value)}>

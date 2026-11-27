@@ -2108,3 +2108,64 @@ button:focus-visible {
     animation-iteration-count: infinite !important;
   }
 }
+
+/* ---- First-time server chooser (per-title player preference) ---- */
+/* Above the detail page (10) and the player (30): the chooser is the last
+   step before playback starts and must be visible from either surface. */
+.provider-backdrop { z-index: 35; }
+.provider-modal {
+  position: relative;
+  width: min(460px, 100%);
+  padding: 26px 26px 22px;
+  border: 1px solid #39323d;
+  border-radius: 13px;
+  background: #1b1820;
+}
+.provider-modal h2 {
+  font: 700 24px 'Space Grotesk', sans-serif;
+  letter-spacing: -.6px;
+  margin: 10px 0 8px;
+}
+.provider-modal-copy {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #b8b1bd;
+  margin-bottom: 18px;
+}
+.provider-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.provider-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 14px 15px;
+  border: 1px solid #39323d;
+  border-radius: 10px;
+  background: #221e28;
+  text-align: left;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.provider-choices button:hover { background: #2b2633; border-color: #4a414f; transform: translateY(-1px); }
+.provider-choices button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+.provider-choices strong { font-size: 14px; color: #f4f1f7; }
+.provider-choices span { font-size: 8px; font-weight: 700; letter-spacing: 1.3px; color: #8f8995; }
+.provider-cancel {
+  margin-top: 14px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #8f8995;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  cursor: pointer;
+}
+.provider-cancel:hover { color: #f2eff5; }
+@media (max-width: 460px) {
+  .provider-choices { grid-template-columns: 1fr; }
+}
