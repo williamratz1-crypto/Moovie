@@ -72,19 +72,59 @@ const SEARCH_COUNTRIES = [
   { code: 'TH', name: 'Thailand' }, { code: 'SE', name: 'Sweden' },
 ];
 
-function buildPlayerUrl(movie) {
+const ZXCSTREAM_PLAYER_ROOT = 'https://zxcstream.cc/player';
+
+// Playback sources. Vidstuck is listed first and is the default everywhere
+// buildPlayerUrl() is called without an explicit provider.
+const PLAYER_PROVIDERS = [
+  { id: 'vidstuck', label: 'Vidstuck' },
+  { id: 'zxcstream', label: 'ZXCStream' },
+];
+
+const clampEpisodeNumber = (value) => Math.max(1, Math.floor(Number(value) || 1));
+
+function buildVidstuckUrl(movie) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
 
-  const season = Math.max(1, Math.floor(Number(movie?.season) || 1));
-  const episode = Math.max(1, Math.floor(Number(movie?.episode) || 1));
+  const season = clampEpisodeNumber(movie?.season);
+  const episode = clampEpisodeNumber(movie?.episode);
   const path = mediaType === 'tv'
     ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
   const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true' });
   return `${path}?${params.toString()}`;
+}
+
+/**
+ * https://zxcstream.cc/player/movie/{id}
+ * https://zxcstream.cc/player/tv/{id}/{season}/{episode}
+ *
+ * Every segment is a validated integer appended to a fixed origin, so a bad
+ * id can only ever produce '' (callers fall back to the default player) — it
+ * cannot inject a path or a different host.
+ */
+function buildZxcStreamUrl(movie) {
+  const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
+  const id = Number(movie?.id);
+  if (!Number.isFinite(id) || id <= 0) return '';
+  const numericId = Math.floor(id);
+
+  if (mediaType === 'tv') {
+    const season = clampEpisodeNumber(movie?.season);
+    const episode = clampEpisodeNumber(movie?.episode);
+    return `${ZXCSTREAM_PLAYER_ROOT}/tv/${numericId}/${season}/${episode}`;
+  }
+  return `${ZXCSTREAM_PLAYER_ROOT}/movie/${numericId}`;
+}
+
+const PLAYER_URL_BUILDERS = { vidstuck: buildVidstuckUrl, zxcstream: buildZxcStreamUrl };
+
+function buildPlayerUrl(movie, provider = 'vidstuck') {
+  const build = PLAYER_URL_BUILDERS[provider] || PLAYER_URL_BUILDERS.vidstuck;
+  return build(movie);
 }
 
 async function tmdb(path, signal) {
@@ -299,6 +339,15 @@ export default function App() {
   const [playerSeason, setPlayerSeason] = useState(1);
   const [playerEpisode, setPlayerEpisode] = useState(1);
   const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
+  // Chosen playback source. Anything other than an explicit ZXCStream choice
+  // (including a blocked/absent localStorage) resolves to the Vidstuck default.
+  const [playerProvider, setPlayerProvider] = useState(() => {
+    try {
+      return localStorage.getItem('moovie-player-provider-v1') === 'zxcstream' ? 'zxcstream' : 'vidstuck';
+    } catch { return 'vidstuck'; }
+  });
+  const [playerFrameLoaded, setPlayerFrameLoaded] = useState(false);
+  const [playerFrameSlow, setPlayerFrameSlow] = useState(false);
   const playerHistoryRef = useRef(false);
   const detailHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
@@ -308,6 +357,11 @@ export default function App() {
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
+
+  const providerLabel = (PLAYER_PROVIDERS.find((provider) => provider.id === playerProvider) || PLAYER_PROVIDERS[0]).label;
+  const playerSrc = selected
+    ? buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode }, playerProvider)
+    : '';
 
   const [profileAvatar, setProfileAvatar] = useState(() => { try { return localStorage.getItem('moovie-profile-avatar-v1') || '🎬'; } catch { return '🎬'; } });
   const [guestDisplayName, setGuestDisplayName] = useState(() => { try { return localStorage.getItem('moovie-profile-name-v1') || ''; } catch { return ''; } });
@@ -453,6 +507,23 @@ export default function App() {
     window.addEventListener('keydown', handlePlayerKeys);
     return () => window.removeEventListener('keydown', handlePlayerKeys);
   }, [playerOpen]);
+
+  // Remember the last source the user picked (defaults to Vidstuck).
+  useEffect(() => {
+    try { localStorage.setItem('moovie-player-provider-v1', playerProvider); } catch {}
+  }, [playerProvider]);
+
+  // Reset load state whenever the player or its source changes. A cross-origin
+  // frame that refuses to be embedded cannot be detected from here — some
+  // browsers still fire `load` with an error document — so this is a best-effort
+  // timeout that offers a reliable fallback (open it in its own tab).
+  useEffect(() => {
+    if (!playerOpen || !playerSrc) return undefined;
+    setPlayerFrameLoaded(false);
+    setPlayerFrameSlow(false);
+    const timer = window.setTimeout(() => setPlayerFrameSlow(true), 9000);
+    return () => window.clearTimeout(timer);
+  }, [playerOpen, playerSrc]);
 
   // Receive playback progress messages sent by the Vidstuck iframe.
   useEffect(() => {
@@ -1643,22 +1714,51 @@ useEffect(() => {
                 </label>
               </div>
             )}
+            <div className="player-provider-switch" role="group" aria-label="Player source">
+              {PLAYER_PROVIDERS.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  className={playerProvider === provider.id ? 'active' : ''}
+                  aria-pressed={playerProvider === provider.id}
+                  onClick={() => setPlayerProvider(provider.id)}
+                  title={`Play with ${provider.label}`}
+                >
+                  {provider.label}
+                </button>
+              ))}
+            </div>
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
-              key={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
+              key={playerSrc}
               className="player-frame"
-              src={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
+              src={playerSrc}
               title={`Moovie player: ${selected.title || selected.name}`}
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => setPlayerFrameLoaded(true)}
             />
+            {playerFrameSlow && !playerFrameLoaded && (
+              <div className="player-frame-notice" role="status">
+                <strong>{providerLabel} is not responding.</strong>
+                <p>It may be slow, or it may refuse to load inside another page. Only open this in a new tab if you are comfortable with that player on its own site.</p>
+                <div className="player-notice-actions">
+                  <a href={playerSrc} target="_blank" rel="noreferrer noopener">Open in a new tab</a>
+                  {playerProvider !== 'vidstuck' && (
+                    <button type="button" onClick={() => setPlayerProvider('vidstuck')}>Switch back to Vidstuck</button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <div className="player-footer">
             <span>MOOVIE PLAYER</span>
+            <a className="player-source-link" href={playerSrc} target="_blank" rel="noreferrer noopener">OPEN IN NEW TAB ↗</a>
+            {playerProvider !== 'vidstuck' && <span className="player-progress-note">PROGRESS NOT TRACKED ON THIS SOURCE</span>}
             <label className="player-aspect-control">
               <span>ASPECT</span>
               <select aria-label="Player aspect ratio" value={playerAspectRatio} onChange={(event) => setPlayerAspectRatio(event.target.value)}>
