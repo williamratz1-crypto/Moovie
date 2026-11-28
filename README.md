@@ -20,6 +20,15 @@ A streaming application built with Android/Kotlin.
 
 Moovie is a streaming app that allows users to browse, search, and watch movies and TV shows.
 
+## Clients
+
+| Path | Client |
+| --- | --- |
+| `app/` | Android app (Kotlin) |
+| `web/` | React + Vite web app, published to GitHub Pages |
+
+The two clients are maintained side by side. Setup, environment variables, the playback servers, and the Firestore data model for the web client are documented in [`web/README.md`](web/README.md).
+
 ## Features
 
 - Browse catalog of movies and TV shows
@@ -45,6 +54,10 @@ Moovie/
 ├── gradle.properties
 ├── local.properties
 ├── settings.gradle.kts
+├── firebase.json          # Firebase CLI config (Firestore rules)
+├── firestore.rules        # Per-user watchlist / ratings / providerPrefs rules
+├── tools/                 # Rule verification script
+├── web/                   # React + Vite web client (see web/README.md)
 ├── how-it-works.md
 └── plan.md
 ```
@@ -82,6 +95,16 @@ Use Gradle to build the APK:
 ```bash
 ./gradlew test
 ```
+
+## Firestore rules
+
+`firestore.rules` lists each per-user subcollection explicitly and denies everything else. Adding a collection to either client requires a matching rule. Deploy from the repository root:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+`tools/verify_rules.sh` checks owner access and cross-user denial against a live project (see [`web/README.md`](web/README.md#firestore-data-model-and-rules)).
 
 ## Contributing
 

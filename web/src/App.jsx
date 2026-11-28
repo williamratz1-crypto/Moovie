@@ -85,6 +85,30 @@ const PLAYER_PROVIDERS = [
 
 const clampEpisodeNumber = (value) => Math.max(1, Math.floor(Number(value) || 1));
 
+// How long a Watch Now click waits for the stored provider preference.
+const PLAYER_PREFS_WAIT_MS = 1200;
+
+/**
+ * Resolves once `readPrefs()` settles or `timeoutMs` elapses — whichever is
+ * first — and never rejects. A rejected read resolves too: the preference map
+ * stays empty, which is exactly what shows the first-time chooser, and the
+ * hook has already reported the error.
+ *
+ * The read itself is only observed, never cancelled: if it loses the race it
+ * keeps running and updates the stored map in the background.
+ */
+function waitForPrefsWithTimeout(readPrefs, timeoutMs = PLAYER_PREFS_WAIT_MS) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    const settle = () => { clearTimeout(timer); resolve(); };
+    try {
+      readPrefs().then(settle, settle);
+    } catch {
+      settle();
+    }
+  });
+}
+
 function buildVidstuckUrl(movie) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
@@ -1268,11 +1292,14 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
-    // Wait for the stored preferences so a click during the initial read
-    // doesn't look like a title the user has never chosen a server for.
+    // Wait briefly for the stored preferences so a click during the initial
+    // read doesn't look like a title the user has never chosen a server for.
+    // Bounded: a slow read must never make Watch Now feel dead, so after
+    // PLAYER_PREFS_WAIT_MS we continue with whatever has loaded — usually
+    // nothing, which falls through to the chooser below.
     if (playerOpenRequestRef.current) return;
     playerOpenRequestRef.current = true;
-    await waitForProviderPrefs();
+    await waitForPrefsWithTimeout(waitForProviderPrefs);
     playerOpenRequestRef.current = false;
 
     const savedProvider = getProvider(playableMovie);
