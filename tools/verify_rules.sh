@@ -36,6 +36,11 @@ check "own watchlist write" 200 "$(w "$U1" "users/$A1/watchlist/movie-550" '{"fi
 check "own watchlist read" 200 "$(rd "$U1" "users/$A1/watchlist/movie-550")"
 check "cross-user read denied" 403 "$(rd "$U2" "users/$A1/watchlist/movie-550")"
 check "cross-user write denied" 403 "$(w "$U2" "users/$A1/watchlist/movie-550" '{"fields":{"titleName":{"stringValue":"hacked"}}}')"
+# Per-title player preference (same owner-only shape as the watchlist).
+check "own provider pref write" 200 "$(w "$U1" "users/$A1/providerPrefs/movie-550" '{"fields":{"provider":{"stringValue":"vidfast"},"tmdbId":{"integerValue":"550"},"mediaType":{"stringValue":"movie"}}}')"
+check "own provider pref read" 200 "$(rd "$U1" "users/$A1/providerPrefs/movie-550")"
+check "cross-user provider pref read denied" 403 "$(rd "$U2" "users/$A1/providerPrefs/movie-550")"
+check "cross-user provider pref write denied" 403 "$(w "$U2" "users/$A1/providerPrefs/movie-550" '{"fields":{"provider":{"stringValue":"vidstuck"}}}')"
 # Followers create notifications in someone else's space (like the app does).
 check "notification write by follower (app-shaped)" 200 "$(w "$U2" "users/$A1/notifications/n$RUNID" '{"fields":{"uid":{"stringValue":"'"$A2"'"},"type":{"stringValue":"new_follower"},"text":{"stringValue":"started following you"},"read":{"booleanValue":false}}}')"
 check "notification spam write denied" 403 "$(w "$U2" "users/$A1/notifications/n2$RUNID" '{"fields":{"uid":{"stringValue":"'"$A2"'"},"type":{"stringValue":"new_follower"},"text":{"stringValue":"'"$(python -c "print('x'*500)")"'"},"read":{"booleanValue":false}}}')"

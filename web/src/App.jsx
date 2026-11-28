@@ -19,6 +19,8 @@ import { auth, db, googleProvider } from './firebase';
 import { authErrorMessage } from './messages';
 import { RATINGS_KEY, clearLocalLibraryBackup, getDocId, readRatings } from './library';
 import { useWatchlist } from './useWatchlist';
+import { useProviderPreferences } from './providerPrefs';
+import { ProviderSwitch } from './ProviderSwitch';
 import { useReveal } from './useReveal';
 import './auth.css';
 import './player.css';
@@ -72,19 +74,137 @@ const SEARCH_COUNTRIES = [
   { code: 'TH', name: 'Thailand' }, { code: 'SE', name: 'Sweden' },
 ];
 
-function buildPlayerUrl(movie) {
+const VIDFAST_PLAYER_ROOT = 'https://vidfast.vc';
+
+// Playback sources. Vidstuck is listed first and is the default everywhere
+// buildPlayerUrl() is called without an explicit provider.
+const PLAYER_PROVIDERS = [
+  { id: 'vidstuck', label: 'Vidstuck' },
+  { id: 'vidfast', label: 'VidFast' },
+];
+
+const clampEpisodeNumber = (value) => Math.max(1, Math.floor(Number(value) || 1));
+
+function buildVidstuckUrl(movie) {
   const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
   const id = Number(movie?.id);
   if (!Number.isFinite(id) || id <= 0) return '';
 
-  const season = Math.max(1, Math.floor(Number(movie?.season) || 1));
-  const episode = Math.max(1, Math.floor(Number(movie?.episode) || 1));
+  const season = clampEpisodeNumber(movie?.season);
+  const episode = clampEpisodeNumber(movie?.episode);
   const path = mediaType === 'tv'
     ? `${VIDSTUCK_EMBED_ROOT}/tv/${id}/${season}/${episode}`
     : `${VIDSTUCK_EMBED_ROOT}/movie/${id}`;
 
   const params = new URLSearchParams({ branding: 'Moovie', loading: '1', back: 'true' });
   return `${path}?${params.toString()}`;
+}
+
+/**
+ * https://vidfast.vc/movie/{id}
+ * https://vidfast.vc/tv/{id}/{season}/{episode}
+ *
+ * Every segment is a validated integer appended to a fixed origin, so a bad
+ * id can only ever produce '' (callers fall back to the default player) — it
+ * cannot inject a path or a different host.
+ */
+function buildVidFastUrl(movie) {
+  const mediaType = movie?.media_type === 'tv' ? 'tv' : 'movie';
+  const id = Number(movie?.id);
+  if (!Number.isFinite(id) || id <= 0) return '';
+  const numericId = Math.floor(id);
+
+  if (mediaType === 'tv') {
+    const season = clampEpisodeNumber(movie?.season);
+    const episode = clampEpisodeNumber(movie?.episode);
+    return `${VIDFAST_PLAYER_ROOT}/tv/${numericId}/${season}/${episode}`;
+  }
+  return `${VIDFAST_PLAYER_ROOT}/movie/${numericId}`;
+}
+
+const PLAYER_URL_BUILDERS = { vidstuck: buildVidstuckUrl, vidfast: buildVidFastUrl };
+
+// The only origins allowed to drive playback state. Anything else is ignored
+// even if it reaches the window.
+const PLAYER_ORIGINS = {
+  'https://vidstuck.cc': 'vidstuck',
+  'https://vidfast.vc': 'vidfast',
+};
+
+/**
+ * Normalises a message from either player into one shape, or returns null.
+ *
+ * Vidstuck:  { type: 'VIDEO_PROGRESS', payload: { media_type, tmdbId, currentTime, duration, season, episode } }
+ * VidFast:   { type: 'PLAYER_EVENT', data: { event, currentTime, duration, tmdbId, mediaType, season, episode, playing } }
+ *
+ * The two dialects are deliberately kept separate: VidFast does not speak
+ * VIDEO_PROGRESS and its payload is not read as one.
+ */
+function readPlaybackEvent(message, activeTitle) {
+  if (!message || typeof message !== 'object' || Array.isArray(message)) return null;
+  if (!activeTitle) return null;
+
+  let mediaType;
+  let tmdbId;
+  let currentTime;
+  let duration;
+  let season;
+  let episode;
+  let eventName = '';
+
+  if (message.type === 'VIDEO_PROGRESS') {
+    const payload = message.payload;
+    if (!payload || typeof payload !== 'object') return null;
+    mediaType = payload.media_type === 'tv' ? 'tv' : 'movie';
+    tmdbId = payload.tmdbId;
+    currentTime = payload.currentTime;
+    duration = payload.duration;
+    season = payload.season;
+    episode = payload.episode;
+  } else if (message.type === 'PLAYER_EVENT') {
+    const data = message.data;
+    if (!data || typeof data !== 'object') return null;
+    mediaType = data.mediaType === 'tv' ? 'tv' : 'movie';
+    tmdbId = data.tmdbId;
+    currentTime = data.currentTime;
+    duration = data.duration;
+    season = data.season;
+    episode = data.episode;
+    eventName = typeof data.event === 'string' ? data.event.toLowerCase() : '';
+  } else {
+    return null;
+  }
+
+  // The message must be about the title that is actually open, as the same
+  // type — a stale frame or a mismatched id must never write progress.
+  const activeType = activeTitle.media_type === 'tv' ? 'tv' : 'movie';
+  if (Number(tmdbId) !== Number(activeTitle.id)) return null;
+  if (mediaType !== activeType) return null;
+
+  const position = Number(currentTime);
+  const total = Number(duration);
+  if (!Number.isFinite(position) || !Number.isFinite(total)) return null;
+  if (position < 0 || total <= 0) return null;
+  if (position > total * 1.05) return null; // nonsense position, ignore it
+
+  const seasonNumber = mediaType === 'tv' ? Math.max(1, Math.floor(Number(season) || 1)) : null;
+  const episodeNumber = mediaType === 'tv' ? Math.max(1, Math.floor(Number(episode) || 1)) : null;
+
+  return {
+    mediaType,
+    position,
+    total,
+    season: seasonNumber,
+    episode: episodeNumber,
+    eventName,
+    paused: eventName === 'pause',
+    ended: eventName === 'ended' || eventName === 'complete' || eventName === 'completed',
+  };
+}
+
+function buildPlayerUrl(movie, provider = 'vidstuck') {
+  const build = PLAYER_URL_BUILDERS[provider] || PLAYER_URL_BUILDERS.vidstuck;
+  return build(movie);
 }
 
 async function tmdb(path, signal) {
@@ -299,6 +419,16 @@ export default function App() {
   const [playerSeason, setPlayerSeason] = useState(1);
   const [playerEpisode, setPlayerEpisode] = useState(1);
   const [playerSeasons, setPlayerSeasons] = useState([]); // [{season_number, episode_count}]
+  // Chosen playback source for the title currently in the player. The saved
+  // preference is per title (see providerPrefs.js); this is only the live
+  // value while the player is open, so it always starts at the default and is
+  // set from the stored preference before playback begins.
+  const [playerProvider, setPlayerProvider] = useState('vidstuck');
+  // Title waiting for a first-time server choice. Nothing plays until the user
+  // picks, and the pick is what gets saved for that title.
+  const [providerPrompt, setProviderPrompt] = useState(null);
+  const [playerFrameLoaded, setPlayerFrameLoaded] = useState(false);
+  const [playerFrameSlow, setPlayerFrameSlow] = useState(false);
   const playerHistoryRef = useRef(false);
   const detailHistoryRef = useRef(false);
   const playerFrameWrapRef = useRef(null);
@@ -308,6 +438,12 @@ export default function App() {
   const lastProgressSaveRef = useRef({ key: '', bucket: -1 });
   const watchTimeSampleRef = useRef({ key: '', currentTime: 0, pendingSeconds: 0 });
   const selectedDetailRequestRef = useRef('');
+  const playerOpenRequestRef = useRef(false);
+
+  const providerLabel = (PLAYER_PROVIDERS.find((provider) => provider.id === playerProvider) || PLAYER_PROVIDERS[0]).label;
+  const playerSrc = selected
+    ? buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode }, playerProvider)
+    : '';
 
   const [profileAvatar, setProfileAvatar] = useState(() => { try { return localStorage.getItem('moovie-profile-avatar-v1') || '🎬'; } catch { return '🎬'; } });
   const [guestDisplayName, setGuestDisplayName] = useState(() => { try { return localStorage.getItem('moovie-profile-name-v1') || ''; } catch { return ''; } });
@@ -335,6 +471,14 @@ export default function App() {
     recordProgress,
     clear: clearWatchlist,
   } = useWatchlist({ authUser, authReady, onError: setCloudError });
+
+  // Per-title player preference: Firestore for signed-in users, localStorage
+  // for guests. Same optimistic shape as the watchlist above.
+  const { getProvider, setProvider, waitForLoaded: waitForProviderPrefs } = useProviderPreferences({
+    authUser,
+    authReady,
+    onError: setCloudError,
+  });
 
   useEffect(() => {
     const preset = THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];
@@ -454,15 +598,51 @@ export default function App() {
     return () => window.removeEventListener('keydown', handlePlayerKeys);
   }, [playerOpen]);
 
-  // Receive playback progress messages sent by the Vidstuck iframe.
+  // Reset load state whenever the player or its source changes. A cross-origin
+  // frame that refuses to be embedded cannot be detected from here — some
+  // browsers still fire `load` with an error document — so this is a best-effort
+  // timeout that offers a reliable fallback (open it in its own tab).
+  useEffect(() => {
+    if (!playerOpen || !playerSrc) return undefined;
+    setPlayerFrameLoaded(false);
+    setPlayerFrameSlow(false);
+    const timer = window.setTimeout(() => setPlayerFrameSlow(true), 9000);
+    return () => window.clearTimeout(timer);
+  }, [playerOpen, playerSrc]);
+
+  // Receive playback progress from whichever player is active.
+  // Vidstuck reports VIDEO_PROGRESS, VidFast reports PLAYER_EVENT; both are
+  // normalised by readPlaybackEvent and persisted through the same
+  // recordProgress path, so Continue Watching and the watchlist schema are
+  // unchanged.
   useEffect(() => {
     if (!playerOpen || !selected) return undefined;
+
+    const activeTitle = { id: selected.id, media_type: selected.media_type || 'movie' };
+    // Latest sample that has not reached the store yet. Buffering means the
+    // final position survives a throttled tick when the player closes.
+    let pendingSample = null;
+
+    function persist(sample) {
+      if (!sample) return;
+      const watchedMinutes = watchTimeSampleRef.current.key === sample.key
+        ? watchTimeSampleRef.current.pendingSeconds / 60
+        : 0;
+      if (watchTimeSampleRef.current.key === sample.key) watchTimeSampleRef.current.pendingSeconds = 0;
+      recordProgress(sample.movie, { ...sample.progress, watchedMinutes });
+    }
+
+    function flush() {
+      const sample = pendingSample;
+      pendingSample = null;
+      persist(sample);
+    }
 
     function handleVideoProgress(event) {
       const frame = playerFrameRef.current;
 
-      // Reject messages from any origin or frame other than the active player.
-      if (event.origin !== 'https://vidstuck.cc') return;
+      // Only the two trusted origins, and only the frame we mounted.
+      if (!PLAYER_ORIGINS[event.origin]) return;
       if (!frame || event.source !== frame.contentWindow) return;
 
       let message = event.data;
@@ -474,74 +654,80 @@ export default function App() {
         }
       }
 
-      if (message?.type !== 'VIDEO_PROGRESS' || !message.payload) return;
+      const sample = readPlaybackEvent(message, activeTitle);
+      if (!sample) {
+        // A pause we can't read a position from still deserves the last known
+        // position to be written.
+        if (message?.type === 'PLAYER_EVENT' && message?.data?.event === 'pause') flush();
+        return;
+      }
 
-      const payload = message.payload;
-      const mediaType = payload.media_type === 'tv' ? 'tv' : 'movie';
-
-      if (
-        Number(payload.tmdbId) !== Number(selected.id) ||
-        mediaType !== (selected.media_type || 'movie')
-      ) return;
-
-      const currentTime = Number(payload.currentTime);
-      const duration = Number(payload.duration);
-
-      if (
-        !Number.isFinite(currentTime) ||
-        !Number.isFinite(duration) ||
-        currentTime < 0 ||
-        duration <= 0
-      ) return;
-
-      const key = `${mediaType}-${selected.id}`;
-      const previousSample = watchTimeSampleRef.current;
-      let pendingSeconds = previousSample.key === key ? previousSample.pendingSeconds : 0;
-      if (previousSample.key === key) {
-        const elapsed = currentTime - previousSample.currentTime;
+      // Seconds genuinely watched: a seek jumps far more than 15s, so a scrub
+      // is not counted. This is what keeps the completion prompt honest.
+      const key = `${sample.mediaType}-${activeTitle.id}`;
+      const previous = watchTimeSampleRef.current;
+      let pendingSeconds = previous.key === key ? previous.pendingSeconds : 0;
+      if (previous.key === key) {
+        const elapsed = sample.position - previous.currentTime;
         if (elapsed > 0 && elapsed <= 15) pendingSeconds += elapsed;
       }
-      watchTimeSampleRef.current = { key, currentTime, pendingSeconds };
-      const completionKey = `${mediaType}-${selected.id}`;
-      const isMovieComplete = mediaType === 'movie' && currentTime / duration >= 0.95;
+      watchTimeSampleRef.current = { key, currentTime: sample.position, pendingSeconds };
+
+      pendingSample = {
+        key,
+        movie: selected,
+        progress: {
+          progressMinutes: Math.round((sample.position / 60) * 10) / 10,
+          runtimeMinutes: Math.round(sample.total / 60),
+          season: sample.season,
+          episode: sample.episode,
+        },
+      };
+
+      // Completion: an explicit `ended`, or >=95% with real playback behind it.
       const finalEpisode = selected.last_episode_to_air;
-      const isFinalTvEpisode = mediaType === 'tv' && finalEpisode &&
-        Number(payload.season) === Number(finalEpisode.season_number) &&
-        Number(payload.episode) === Number(finalEpisode.episode_number) && currentTime / duration >= 0.95;
-      if ((isMovieComplete || isFinalTvEpisode) && !ratings[completionKey] && !completionPromptedRef.current.has(completionKey)) {
-        completionPromptedRef.current.add(completionKey);
-        setRatingPrompt({ ...selected, media_type: mediaType });
+      const isFinalTvEpisode = sample.mediaType === 'tv' && finalEpisode &&
+        sample.season === Number(finalEpisode.season_number) &&
+        sample.episode === Number(finalEpisode.episode_number);
+      const nearEnd = sample.position / sample.total >= 0.95;
+      const watchedEnough = pendingSeconds >= 90 || sample.total <= 180;
+      const complete = sample.ended || (nearEnd && watchedEnough);
+
+      if (
+        complete &&
+        (sample.mediaType === 'movie' || isFinalTvEpisode) &&
+        !ratings[key] &&
+        !completionPromptedRef.current.has(key)
+      ) {
+        completionPromptedRef.current.add(key);
+        flush(); // save the final position before the player goes away
+        setRatingPrompt({ ...selected, media_type: sample.mediaType });
         closePlayer();
+        return;
       }
 
-      const progressMinutes = Math.round((currentTime / 60) * 10) / 10;
-      const runtimeMinutes = Math.round(duration / 60);
-      const season = mediaType === 'tv' ? Number(payload.season) || 1 : null;
-      const episode = mediaType === 'tv' ? Number(payload.episode) || 1 : null;
+      const bucket = Math.floor(sample.position / 10);
+      const sameBucket = lastProgressSaveRef.current.key === key &&
+        lastProgressSaveRef.current.bucket === bucket;
 
-      // Avoid a Firestore write every second: save once per 10 seconds watched.
-      const bucket = Math.floor(currentTime / 10);
-      if (
-        lastProgressSaveRef.current.key === key &&
-        lastProgressSaveRef.current.bucket === bucket
-      ) return;
-      lastProgressSaveRef.current = { key, bucket };
-      const trackedMinutes = pendingSeconds / 60;
-      watchTimeSampleRef.current.pendingSeconds = 0;
-
-      // Continue Watching updates locally first, then syncs (queued offline).
-      recordProgress(selected, {
-        progressMinutes,
-        runtimeMinutes,
-        season,
-        episode,
-        watchedMinutes: trackedMinutes,
-      });
+      // Pause and `ended` save immediately; routine ticks save once per 10s.
+      if (sample.paused || sample.ended || !sameBucket) {
+        lastProgressSaveRef.current = { key, bucket };
+        flush();
+      }
     }
 
     window.addEventListener('message', handleVideoProgress);
-    return () => window.removeEventListener('message', handleVideoProgress);
-  }, [playerOpen, selected, ratings, recordProgress]);
+    return () => {
+      window.removeEventListener('message', handleVideoProgress);
+      // Closing the player, switching providers or changing episodes must not
+      // drop the last few seconds.
+      flush();
+    };
+    // playerSrc is in the deps so switching provider, season or episode tears
+    // the listener down and flushes the pending sample for the episode that
+    // was just playing.
+  }, [playerOpen, playerSrc, selected, ratings, recordProgress]);
 
   // Keep a local backup for every account so ratings survive reloads and cloud outages.
   useEffect(() => {
@@ -1070,6 +1256,9 @@ useEffect(() => {
     });
   }
 
+  // Every entry point (Watch Now, hero, Continue Watching, detail page) lands
+  // here. The provider is decided before the player opens: a saved preference
+  // is used silently, and a title with no preference gets the chooser.
   async function openPlayer(movieToPlay = selected) {
     if (playerOpen || !movieToPlay) return;
 
@@ -1079,6 +1268,47 @@ useEffect(() => {
     };
     if (!buildPlayerUrl(playableMovie)) return;
 
+    // Wait for the stored preferences so a click during the initial read
+    // doesn't look like a title the user has never chosen a server for.
+    if (playerOpenRequestRef.current) return;
+    playerOpenRequestRef.current = true;
+    await waitForProviderPrefs();
+    playerOpenRequestRef.current = false;
+
+    const savedProvider = getProvider(playableMovie);
+    if (!savedProvider) {
+      setProviderPrompt(playableMovie);
+      return;
+    }
+
+    setPlayerProvider(savedProvider);
+    startPlayback(playableMovie);
+  }
+
+  // First-time choice: save it for this title, then play with it. There is no
+  // follow-up prompt — the choice the user just made is the saved preference.
+  function chooseInitialProvider(provider) {
+    const movie = providerPrompt;
+    if (!movie) return;
+    setProviderPrompt(null);
+    setPlayerProvider(provider);
+    void setProvider(movie, provider);
+    startPlayback(movie);
+  }
+
+  // In-player switch: same title, same episode, different server. The saved
+  // preference is updated immediately, and the progress effect flushes the
+  // pending sample because playerSrc changes (so the position is written
+  // before the new frame starts loading). Neither provider exposes a start
+  // position parameter we can rely on, so playback resumes at 00:00 and the
+  // user picks up manually.
+  function switchProvider(provider) {
+    if (!selected || provider === playerProvider) return;
+    setPlayerProvider(provider);
+    void setProvider(selected, provider);
+  }
+
+  function startPlayback(playableMovie) {
     setPlayerSeason(Math.max(1, Math.floor(Number(playableMovie.season) || 1)));
     setPlayerEpisode(Math.max(1, Math.floor(Number(playableMovie.episode) || 1)));
     if (playableMovie.media_type === 'tv') {
@@ -1598,6 +1828,26 @@ useEffect(() => {
         </section>
       </div>}
 
+      {providerPrompt && <div className="modal-backdrop provider-backdrop" role="dialog" aria-modal="true" aria-labelledby="provider-prompt-title" onClick={() => setProviderPrompt(null)}>
+        <section className="provider-modal" onClick={(event) => event.stopPropagation()}>
+          <button className="modal-close" onClick={() => setProviderPrompt(null)} aria-label="Cancel"><X size={20} /></button>
+          <span className="eyebrow">CHOOSE A PLAYER</span>
+          <h2 id="provider-prompt-title">{providerPrompt.title || providerPrompt.name || 'This title'}</h2>
+          <p className="provider-modal-copy">
+            Pick the server to start with. Moovie remembers it for this {providerPrompt.media_type === 'tv' ? 'series' : 'film'} only, and you can switch anytime from the player.
+          </p>
+          <div className="provider-choices">
+            {PLAYER_PROVIDERS.map((provider, index) => (
+              <button key={provider.id} type="button" autoFocus={index === 0} onClick={() => chooseInitialProvider(provider.id)}>
+                <strong>{provider.label}</strong>
+                <span>{provider.id === 'vidstuck' ? 'ORIGINAL SOURCE' : 'ALTERNATIVE SOURCE'}</span>
+              </button>
+            ))}
+          </div>
+          <button className="provider-cancel" type="button" onClick={() => setProviderPrompt(null)}>Not now</button>
+        </section>
+      </div>}
+
       {ratingPrompt && <div className="rating-prompt-backdrop" role="dialog" aria-modal="true" aria-label="Rate completed title">
         <section className="rating-prompt-card">
           <span className="eyebrow">YOU FINISHED WATCHING</span>
@@ -1643,22 +1893,42 @@ useEffect(() => {
                 </label>
               </div>
             )}
+            <ProviderSwitch
+              value={playerProvider}
+              label={providerLabel}
+              options={PLAYER_PROVIDERS}
+              onChange={switchProvider}
+            />
             <button className="player-close" onClick={closePlayer} aria-label="Close player"><X size={20} /></button>
           </header>
           <div className={`player-frame-wrap${playerAspectRatio === 'fill' ? ' player-frame-fill' : ''}`} ref={playerFrameWrapRef} style={playerAspectRatio === 'fill' ? { height: 'calc(100dvh - 150px)' } : { aspectRatio: playerAspectRatio }}>
             <iframe
               ref={playerFrameRef}
-              key={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
+              key={playerSrc}
               className="player-frame"
-              src={buildPlayerUrl({ ...selected, season: playerSeason, episode: playerEpisode })}
+              src={playerSrc}
               title={`Moovie player: ${selected.title || selected.name}`}
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => setPlayerFrameLoaded(true)}
             />
+            {playerFrameSlow && !playerFrameLoaded && (
+              <div className="player-frame-notice" role="status">
+                <strong>{providerLabel} is not responding.</strong>
+                <p>It may be slow, or it may refuse to load inside another page. Only open this in a new tab if you are comfortable with that player on its own site.</p>
+                <div className="player-notice-actions">
+                  <a href={playerSrc} target="_blank" rel="noreferrer noopener">Open in a new tab</a>
+                  {playerProvider !== 'vidstuck' && (
+                    <button type="button" onClick={() => switchProvider('vidstuck')}>Switch back to Vidstuck</button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <div className="player-footer">
             <span>MOOVIE PLAYER</span>
+            <a className="player-source-link" href={playerSrc} target="_blank" rel="noreferrer noopener">OPEN IN NEW TAB ↗</a>
             <label className="player-aspect-control">
               <span>ASPECT</span>
               <select aria-label="Player aspect ratio" value={playerAspectRatio} onChange={(event) => setPlayerAspectRatio(event.target.value)}>

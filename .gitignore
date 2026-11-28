@@ -25,3 +25,7 @@ keystore/
 
 # Build logs
 build_log.txt
+
+# Firebase CLI output (created by `firebase deploy`, never content)
+firebase-debug.log
+firebase-debug.*.log

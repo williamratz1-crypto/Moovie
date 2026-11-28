@@ -242,3 +242,148 @@
 
 .player-episode-selects { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .player-episode-selects select:disabled { opacity: .55; cursor: default; }
+
+/* ---- Player source control (active server + "Switch Provider") ---- */
+.player-provider-control {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 3px 3px 11px;
+  border: 1px solid #39323d;
+  border-radius: 9px;
+  background: #1b1820;
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.player-provider-current {
+  color: #8f8995;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.player-provider-current strong { color: var(--yellow, #f5c518); font-weight: 800; }
+.player-provider-trigger {
+  border: 0;
+  border-radius: 6px;
+  background: #302a37;
+  color: #f2eff5;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .18s ease, color .18s ease;
+}
+.player-provider-trigger:hover { background: #3b3444; color: var(--yellow, #f5c518); }
+.player-provider-trigger:focus-visible,
+.player-provider-menu button:focus-visible { outline: 2px solid #f5c518; outline-offset: 2px; }
+.player-provider-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  min-width: 200px;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid #39323d;
+  border-radius: 9px;
+  background: #221e28;
+  box-shadow: 0 18px 40px #000a;
+}
+.player-provider-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #c9c3ce;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.player-provider-menu button:hover { background: #302a37; color: #f2eff5; }
+.player-provider-menu button.is-active { color: var(--yellow, #f5c518); }
+.player-provider-tick { font-size: 8px; font-weight: 800; letter-spacing: .1em; color: #6f6977; }
+.player-provider-menu button.is-active .player-provider-tick { color: var(--yellow, #f5c518); }
+@media (max-width: 600px) {
+  .player-provider-control { justify-content: flex-end; }
+  .player-provider-menu { right: 0; }
+}
+
+/* The frame area needs a positioning context for the fallback notice. */
+.player-frame-wrap { position: relative; }
+
+.player-frame-notice {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px;
+  text-align: center;
+  background: #0d0c10e8;
+  color: #e9e4ee;
+  animation: player-notice-in .22s ease both;
+}
+@keyframes player-notice-in { from { opacity: 0; } to { opacity: 1; } }
+.player-frame-notice strong { font: 600 15px 'Space Grotesk', sans-serif; }
+.player-frame-notice p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #a9a3ae;
+}
+.player-notice-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+.player-notice-actions a,
+.player-notice-actions button {
+  border: 1px solid #4a414f;
+  border-radius: 8px;
+  background: #211e26;
+  color: #f2eff5;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, transform .16s ease;
+}
+.player-notice-actions a:hover,
+.player-notice-actions button:hover {
+  border-color: var(--yellow, #f5c518);
+  color: var(--yellow, #f5c518);
+  transform: translateY(-1px);
+}
+
+.player-source-link {
+  color: #8d8793;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-decoration: none;
+  transition: color .18s ease;
+}
+.player-source-link:hover { color: var(--yellow, #f5c518); }
+
+.player-progress-note {
+  color: #c9a227;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
